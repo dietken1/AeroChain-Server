@@ -156,13 +156,17 @@ public class DeliveryBatchService {
         int stopDelayMin = (requests.size() + 2) * STOP_DELAY_MIN; // PICKUP + DROP들 + RETURN
         int estimatedDuration = travelTimeMin + stopDelayMin;
 
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+
         return Route.builder()
                 .drone(drone)
                 .store(store)
-                .totalDistanceKm(totalDistance)
-                .totalWeightKg(totalWeight)
-                .estimatedDurationMin(estimatedDuration)
-                .note("Batch processed at " + java.time.LocalDateTime.now())
+                .plannedTotalDistanceKm(totalDistance)
+                .plannedTotalPayloadKg(totalWeight)
+                .plannedStartAt(now)
+                .plannedEndAt(now.plusMinutes(estimatedDuration))
+                .heuristic("Nearest Neighbor")
+                .note("Batch processed at " + now)
                 .build();
     }
 
@@ -171,26 +175,18 @@ public class DeliveryBatchService {
      */
     private void createRouteStops(Route route, Store store, List<DeliveryRequest> requests) {
         int sequence = 1;
-        BigDecimal currentLat = store.getLat();
-        BigDecimal currentLng = store.getLng();
 
         // 1. PICKUP (매장)
         RouteStop pickupStop = createRouteStop(route, sequence++, StopType.PICKUP,
-                store, null, store.getLat(), store.getLng(),
-                BigDecimal.ZERO); // 시작점이므로 거리 0
+                store.getName(), store, null, store.getLat(), store.getLng(), null);
         routeStopRepository.save(pickupStop);
-
-        currentLat = pickupStop.getArrivalLat();
-        currentLng = pickupStop.getArrivalLng();
 
         // 2. DROP들 (각 배송지)
         for (DeliveryRequest request : requests) {
-            BigDecimal distance = calculateDistance(currentLat, currentLng,
-                    request.getDestLat(), request.getDestLng());
-
             RouteStop dropStop = createRouteStop(route, sequence++, StopType.DROP,
-                    null, request.getCustomer(), request.getDestLat(), request.getDestLng(),
-                    distance);
+                    request.getCustomer().getName(), null, request.getCustomer(),
+                    request.getDestLat(), request.getDestLng(),
+                    request.getTotalWeightKg().negate()); // 배송으로 무게 감소
             routeStopRepository.save(dropStop);
 
             // RouteStopRequest 생성 (Stop과 Request 매핑)
@@ -199,36 +195,30 @@ public class DeliveryBatchService {
                     .deliveryRequest(request)
                     .build();
             routeStopRequestRepository.save(routeStopRequest);
-
-            currentLat = dropStop.getArrivalLat();
-            currentLng = dropStop.getArrivalLng();
         }
 
         // 3. RETURN (매장으로 귀환)
-        BigDecimal returnDistance = calculateDistance(currentLat, currentLng,
-                store.getLat(), store.getLng());
-
         RouteStop returnStop = createRouteStop(route, sequence, StopType.RETURN,
-                store, null, store.getLat(), store.getLng(),
-                returnDistance);
+                store.getName(), store, null, store.getLat(), store.getLng(), null);
         routeStopRepository.save(returnStop);
     }
 
     /**
      * RouteStop 생성 헬퍼 메서드
      */
-    private RouteStop createRouteStop(Route route, int sequence, StopType type,
+    private RouteStop createRouteStop(Route route, int sequence, StopType type, String name,
                                        Store store, backend.databaseproject.domain.customer.entity.Customer customer,
-                                       BigDecimal lat, BigDecimal lng, BigDecimal distanceFromPrev) {
+                                       BigDecimal lat, BigDecimal lng, BigDecimal payloadDelta) {
         return RouteStop.builder()
                 .route(route)
                 .stopSequence(sequence)
                 .stopType(type)
+                .name(name)
+                .lat(lat)
+                .lng(lng)
+                .payloadDeltaKg(payloadDelta)
                 .store(store)
                 .customer(customer)
-                .arrivalLat(lat)
-                .arrivalLng(lng)
-                .distanceFromPrevKm(distanceFromPrev)
                 .build();
     }
 

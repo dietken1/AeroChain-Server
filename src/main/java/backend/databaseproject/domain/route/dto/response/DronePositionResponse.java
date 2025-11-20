@@ -29,17 +29,14 @@ public class DronePositionResponse {
     @Schema(description = "경도", example = "127.123456")
     private BigDecimal lng;
 
-    @Schema(description = "고도 (미터)", example = "50.00")
-    private BigDecimal altitudeM;
+    @Schema(description = "속도 (m/s)", example = "8.33")
+    private BigDecimal speedMps;
 
-    @Schema(description = "속도 (km/h)", example = "30.00")
-    private BigDecimal speedKmh;
-
-    @Schema(description = "배터리 잔량 (%)", example = "85")
-    private Integer battery;
+    @Schema(description = "배터리 잔량 (%)", example = "85.50")
+    private BigDecimal batteryPct;
 
     @Schema(description = "기록 시각", example = "2024-01-15T14:30:00")
-    private LocalDateTime recordedAt;
+    private LocalDateTime ts;
 
     /**
      * Entity를 DTO로 변환
@@ -53,10 +50,9 @@ public class DronePositionResponse {
                 .routeId(routePosition.getRoute().getRouteId())
                 .lat(routePosition.getLat())
                 .lng(routePosition.getLng())
-                .altitudeM(routePosition.getAltitudeM())
-                .speedKmh(routePosition.getSpeedKmh())
-                .battery(routePosition.getBattery())
-                .recordedAt(routePosition.getRecordedAt())
+                .speedMps(routePosition.getSpeedMps())
+                .batteryPct(routePosition.getBatteryPct())
+                .ts(routePosition.getTs())
                 .build();
     }
 }

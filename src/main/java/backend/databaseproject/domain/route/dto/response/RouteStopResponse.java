@@ -38,17 +38,23 @@ public class RouteStopResponse {
     @Schema(description = "경도", example = "127.123456")
     private BigDecimal lng;
 
-    @Schema(description = "이전 정류장으로부터의 거리 (km)", example = "1.25")
-    private BigDecimal distanceFromPrevKm;
-
     @Schema(description = "정류장 상태 (PENDING, ARRIVED, DEPARTED, SKIPPED)", example = "PENDING")
     private String status;
 
-    @Schema(description = "도착 시각", example = "2024-01-15T14:30:00")
-    private LocalDateTime arrivedAt;
+    @Schema(description = "계획 도착 시각", example = "2024-01-15T14:25:00")
+    private LocalDateTime plannedArrivalAt;
 
-    @Schema(description = "출발 시각", example = "2024-01-15T14:35:00")
-    private LocalDateTime departedAt;
+    @Schema(description = "계획 출발 시각", example = "2024-01-15T14:27:00")
+    private LocalDateTime plannedDepartureAt;
+
+    @Schema(description = "실제 도착 시각", example = "2024-01-15T14:30:00")
+    private LocalDateTime actualArrivalAt;
+
+    @Schema(description = "실제 출발 시각", example = "2024-01-15T14:35:00")
+    private LocalDateTime actualDepartureAt;
+
+    @Schema(description = "적재량 변화 (kg)", example = "-1.500")
+    private BigDecimal payloadDeltaKg;
 
     /**
      * Entity를 DTO로 변환
@@ -58,25 +64,19 @@ public class RouteStopResponse {
             return null;
         }
 
-        // 정류장 이름 결정 (매장 또는 고객)
-        String name = null;
-        if (routeStop.getStore() != null) {
-            name = routeStop.getStore().getName();
-        } else if (routeStop.getCustomer() != null) {
-            name = routeStop.getCustomer().getName();
-        }
-
         return RouteStopResponse.builder()
                 .stopId(routeStop.getStopId())
                 .stopSeq(routeStop.getStopSequence())
                 .type(routeStop.getStopType().name())
-                .name(name)
-                .lat(routeStop.getArrivalLat())
-                .lng(routeStop.getArrivalLng())
-                .distanceFromPrevKm(routeStop.getDistanceFromPrevKm())
+                .name(routeStop.getName())
+                .lat(routeStop.getLat())
+                .lng(routeStop.getLng())
                 .status(routeStop.getStatus().name())
-                .arrivedAt(routeStop.getArrivedAt())
-                .departedAt(routeStop.getDepartedAt())
+                .plannedArrivalAt(routeStop.getPlannedArrivalAt())
+                .plannedDepartureAt(routeStop.getPlannedDepartureAt())
+                .actualArrivalAt(routeStop.getActualArrivalAt())
+                .actualDepartureAt(routeStop.getActualDepartureAt())
+                .payloadDeltaKg(routeStop.getPayloadDeltaKg())
                 .build();
     }
 }

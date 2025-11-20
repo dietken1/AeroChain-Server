@@ -21,8 +21,8 @@ public class FlightLog {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    @Column(name = "flight_log_id")
-    private Long flightLogId;
+    @Column(name = "log_id")
+    private Long logId;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "route_id", nullable = false)
@@ -35,22 +35,13 @@ public class FlightLog {
     @Column(name = "start_time", nullable = false)
     private LocalDateTime startTime;
 
-    @Column(name = "end_time")
+    @Column(name = "end_time", nullable = false)
     private LocalDateTime endTime;
 
-    @Column(name = "distance_km", precision = 8, scale = 2)
-    private BigDecimal distanceKm;
+    @Column(nullable = false, precision = 8, scale = 3)
+    private BigDecimal distance;
 
-    @Column(name = "duration_min")
-    private Integer durationMin;
-
-    @Column(name = "max_altitude_m", precision = 8, scale = 2)
-    private BigDecimal maxAltitudeM;
-
-    @Column(name = "avg_speed_kmh", precision = 6, scale = 2)
-    private BigDecimal avgSpeedKmh;
-
-    @Column(name = "battery_used")
+    @Column(name = "battery_used", nullable = false)
     private Integer batteryUsed;
 
     @Enumerated(EnumType.STRING)
@@ -58,34 +49,19 @@ public class FlightLog {
     private FlightResult result;
 
     @Column(columnDefinition = "TEXT")
-    private String errorMessage;
-
-    @Column(name = "created_at", nullable = false, updatable = false)
-    private LocalDateTime createdAt;
-
-    @PrePersist
-    protected void onCreate() {
-        if (createdAt == null) {
-            createdAt = LocalDateTime.now();
-        }
-    }
+    private String note;
 
     @Builder
     public FlightLog(Route route, Drone drone, LocalDateTime startTime, LocalDateTime endTime,
-                     BigDecimal distanceKm, Integer durationMin, BigDecimal maxAltitudeM,
-                     BigDecimal avgSpeedKmh, Integer batteryUsed, FlightResult result,
-                     String errorMessage) {
+                     BigDecimal distance, Integer batteryUsed, FlightResult result, String note) {
         this.route = route;
         this.drone = drone;
         this.startTime = startTime;
         this.endTime = endTime;
-        this.distanceKm = distanceKm;
-        this.durationMin = durationMin;
-        this.maxAltitudeM = maxAltitudeM;
-        this.avgSpeedKmh = avgSpeedKmh;
+        this.distance = distance;
         this.batteryUsed = batteryUsed;
         this.result = result;
-        this.errorMessage = errorMessage;
+        this.note = note;
     }
 
     /**

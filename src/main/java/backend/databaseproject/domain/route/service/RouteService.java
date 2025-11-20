@@ -74,7 +74,7 @@ public class RouteService {
                 });
 
         log.info("드론 현재 위치 조회 완료 - RouteId: {}, Battery: {}%",
-                routeId, latestPosition.getBattery());
+                routeId, latestPosition.getBatteryPct());
 
         return DronePositionResponse.from(latestPosition);
     }

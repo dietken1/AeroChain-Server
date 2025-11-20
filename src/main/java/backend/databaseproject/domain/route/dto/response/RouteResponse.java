@@ -40,26 +40,26 @@ public class RouteResponse {
     @Schema(description = "경로 상태 (PLANNED, LAUNCHED, COMPLETED, ABORTED)", example = "PLANNED")
     private String status;
 
-    @Schema(description = "생성 시각", example = "2024-01-15T14:00:00")
-    private LocalDateTime createdAt;
+    @Schema(description = "계획 출발 시각", example = "2024-01-15T14:00:00")
+    private LocalDateTime plannedStartAt;
 
-    @Schema(description = "출발 시각", example = "2024-01-15T14:05:00")
-    private LocalDateTime launchedAt;
+    @Schema(description = "계획 도착 시각", example = "2024-01-15T15:00:00")
+    private LocalDateTime plannedEndAt;
 
-    @Schema(description = "완료 시각", example = "2024-01-15T15:00:00")
-    private LocalDateTime completedAt;
+    @Schema(description = "실제 출발 시각", example = "2024-01-15T14:05:00")
+    private LocalDateTime actualStartAt;
 
-    @Schema(description = "총 거리 (km)", example = "12.50")
-    private BigDecimal totalDistanceKm;
+    @Schema(description = "실제 완료 시각", example = "2024-01-15T15:00:00")
+    private LocalDateTime actualEndAt;
 
-    @Schema(description = "총 무게 (kg)", example = "3.500")
-    private BigDecimal totalWeightKg;
+    @Schema(description = "계획 총 거리 (km)", example = "12.50")
+    private BigDecimal plannedTotalDistanceKm;
 
-    @Schema(description = "예상 소요 시간 (분)", example = "45")
-    private Integer estimatedDurationMin;
+    @Schema(description = "계획 총 무게 (kg)", example = "3.500")
+    private BigDecimal plannedTotalPayloadKg;
 
-    @Schema(description = "실제 소요 시간 (분)", example = "48")
-    private Integer actualDurationMin;
+    @Schema(description = "사용된 휴리스틱", example = "Nearest Neighbor")
+    private String heuristic;
 
     @Schema(description = "정류장 목록")
     private List<RouteStopResponse> stops;
@@ -87,13 +87,13 @@ public class RouteResponse {
                 .storeId(route.getStore().getStoreId())
                 .storeName(route.getStore().getName())
                 .status(route.getStatus().name())
-                .createdAt(route.getCreatedAt())
-                .launchedAt(route.getLaunchedAt())
-                .completedAt(route.getCompletedAt())
-                .totalDistanceKm(route.getTotalDistanceKm())
-                .totalWeightKg(route.getTotalWeightKg())
-                .estimatedDurationMin(route.getEstimatedDurationMin())
-                .actualDurationMin(route.getActualDurationMin())
+                .plannedStartAt(route.getPlannedStartAt())
+                .plannedEndAt(route.getPlannedEndAt())
+                .actualStartAt(route.getActualStartAt())
+                .actualEndAt(route.getActualEndAt())
+                .plannedTotalDistanceKm(route.getPlannedTotalDistanceKm())
+                .plannedTotalPayloadKg(route.getPlannedTotalPayloadKg())
+                .heuristic(route.getHeuristic())
                 .stops(stopResponses)
                 .note(route.getNote())
                 .build();

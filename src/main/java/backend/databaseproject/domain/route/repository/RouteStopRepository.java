@@ -17,14 +17,14 @@ public interface RouteStopRepository extends JpaRepository<RouteStop, Long> {
     /**
      * 특정 경로의 정류장 목록 조회 (순서대로)
      */
-    List<RouteStop> findByRouteRouteIdOrderByStopSeq(Long routeId);
+    List<RouteStop> findByRouteRouteIdOrderByStopSequence(Long routeId);
 
     /**
      * 특정 경로의 다음 정류장 조회 (PENDING 상태)
      */
     @Query("SELECT rs FROM RouteStop rs " +
            "WHERE rs.route.routeId = :routeId AND rs.status = 'PENDING' " +
-           "ORDER BY rs.stopSeq ASC " +
+           "ORDER BY rs.stopSequence ASC " +
            "LIMIT 1")
     RouteStop findNextPendingStop(@Param("routeId") Long routeId);
 }

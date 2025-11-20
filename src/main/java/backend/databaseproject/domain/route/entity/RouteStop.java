@@ -35,8 +35,36 @@ public class RouteStop {
     private Integer stopSequence;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
+    @Column(name = "type", nullable = false, length = 20)
     private StopType stopType;
+
+    @Column(length = 120)
+    private String name;
+
+    @Column(precision = 9, scale = 6, nullable = false)
+    private BigDecimal lat;
+
+    @Column(precision = 9, scale = 6, nullable = false)
+    private BigDecimal lng;
+
+    @Column(name = "planned_arrival_at")
+    private LocalDateTime plannedArrivalAt;
+
+    @Column(name = "planned_departure_at")
+    private LocalDateTime plannedDepartureAt;
+
+    @Column(name = "actual_arrival_at")
+    private LocalDateTime actualArrivalAt;
+
+    @Column(name = "actual_departure_at")
+    private LocalDateTime actualDepartureAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private StopStatus status = StopStatus.PENDING;
+
+    @Column(name = "payload_delta_kg", precision = 7, scale = 3)
+    private BigDecimal payloadDeltaKg;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "store_id")
@@ -46,53 +74,29 @@ public class RouteStop {
     @JoinColumn(name = "customer_id")
     private Customer customer;
 
-    @Column(name = "arrival_lat", precision = 9, scale = 6)
-    private BigDecimal arrivalLat;
-
-    @Column(name = "arrival_lng", precision = 9, scale = 6)
-    private BigDecimal arrivalLng;
-
-    @Column(name = "distance_from_prev_km", precision = 8, scale = 2)
-    private BigDecimal distanceFromPrevKm;
-
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
-    private StopStatus status = StopStatus.PENDING;
-
-    @Column(name = "arrived_at")
-    private LocalDateTime arrivedAt;
-
-    @Column(name = "departed_at")
-    private LocalDateTime departedAt;
-
-    @Column(name = "created_at", nullable = false, updatable = false)
-    private LocalDateTime createdAt;
-
     @Column(columnDefinition = "TEXT")
     private String note;
 
     @OneToMany(mappedBy = "routeStop", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<RouteStopRequest> routeStopRequests = new ArrayList<>();
 
-    @PrePersist
-    protected void onCreate() {
-        if (createdAt == null) {
-            createdAt = LocalDateTime.now();
-        }
-    }
-
     @Builder
-    public RouteStop(Route route, Integer stopSequence, StopType stopType,
-                     Store store, Customer customer, BigDecimal arrivalLat, BigDecimal arrivalLng,
-                     BigDecimal distanceFromPrevKm, String note) {
+    public RouteStop(Route route, Integer stopSequence, StopType stopType, String name,
+                     BigDecimal lat, BigDecimal lng,
+                     LocalDateTime plannedArrivalAt, LocalDateTime plannedDepartureAt,
+                     BigDecimal payloadDeltaKg,
+                     Store store, Customer customer, String note) {
         this.route = route;
         this.stopSequence = stopSequence;
         this.stopType = stopType;
+        this.name = name;
+        this.lat = lat;
+        this.lng = lng;
+        this.plannedArrivalAt = plannedArrivalAt;
+        this.plannedDepartureAt = plannedDepartureAt;
+        this.payloadDeltaKg = payloadDeltaKg;
         this.store = store;
         this.customer = customer;
-        this.arrivalLat = arrivalLat;
-        this.arrivalLng = arrivalLng;
-        this.distanceFromPrevKm = distanceFromPrevKm;
         this.status = StopStatus.PENDING;
         this.note = note;
     }
@@ -116,7 +120,7 @@ public class RouteStop {
      */
     public void arrive() {
         this.status = StopStatus.ARRIVED;
-        this.arrivedAt = LocalDateTime.now();
+        this.actualArrivalAt = LocalDateTime.now();
     }
 
     /**
@@ -124,7 +128,7 @@ public class RouteStop {
      */
     public void depart() {
         this.status = StopStatus.DEPARTED;
-        this.departedAt = LocalDateTime.now();
+        this.actualDepartureAt = LocalDateTime.now();
     }
 
     /**

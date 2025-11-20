@@ -2,6 +2,7 @@ package backend.databaseproject.domain.route.controller;
 
 import backend.databaseproject.domain.route.dto.response.DronePositionResponse;
 import backend.databaseproject.domain.route.dto.response.RouteResponse;
+import backend.databaseproject.domain.route.service.DeliveryBatchService;
 import backend.databaseproject.domain.route.service.RouteService;
 import backend.databaseproject.global.common.BaseResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -27,6 +28,7 @@ import java.util.List;
 public class RouteController {
 
     private final RouteService routeService;
+    private final DeliveryBatchService deliveryBatchService;
 
     /**
      * 경로 상세 조회
@@ -116,5 +118,53 @@ public class RouteController {
         log.info("API 호출: GET /api/routes/active");
         List<RouteResponse> activeRoutes = routeService.getActiveRoutes();
         return BaseResponse.success(activeRoutes);
+    }
+
+    /**
+     * 배송 시작 (수동)
+     * 현재까지 쌓여있는 주문들을 배송 시작합니다.
+     * 매니저가 "배송 진행" 버튼을 클릭하면 호출되는 API입니다.
+     *
+     * @return 성공 메시지
+     */
+    @PostMapping("/start-delivery")
+    @Operation(
+            summary = "배송 시작 (수동)",
+            description = "현재까지 대기 중인 모든 주문을 수집하여 배송을 시작합니다. " +
+                         "드론의 최대 무게와 배터리를 고려하여 먼저 온 주문 순으로 최적 경로를 탐색합니다. " +
+                         "데모 시연용 API입니다.",
+            responses = {
+                    @ApiResponse(
+                            responseCode = "200",
+                            description = "배송 시작 성공",
+                            content = @Content(schema = @Schema(implementation = BaseResponse.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "400",
+                            description = "사용 가능한 드론이 없거나 대기 중인 주문이 없음"
+                    )
+            }
+    )
+    public BaseResponse<String> startDelivery() {
+        log.info("API 호출: POST /api/routes/start-delivery");
+        log.info("========================================");
+        log.info("매니저가 수동 배송 시작 요청");
+        log.info("========================================");
+
+        try {
+            deliveryBatchService.processBatch();
+
+            log.info("========================================");
+            log.info("수동 배송 시작 완료");
+            log.info("========================================");
+
+            return BaseResponse.success("배송이 성공적으로 시작되었습니다.");
+        } catch (Exception e) {
+            log.error("수동 배송 시작 중 오류 발생", e);
+            log.info("========================================");
+            log.info("수동 배송 시작 실패");
+            log.info("========================================");
+            throw e;
+        }
     }
 }

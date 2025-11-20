@@ -18,11 +18,11 @@ public class DeliveryScheduler {
     private final DeliveryBatchService deliveryBatchService;
 
     /**
-     * 매 10분마다 배송 배치 처리 실행
+     * 매 10분마다 배송 배치 처리 실행 (현재 비활성화 - 수동 배송 시작 API 사용)
      * cron 표현식: "초 분 시 일 월 요일"
      * 매 10분마다 실행 (0분, 10분, 20분, 30분, 40분, 50분)
      */
-    @Scheduled(cron = "0 */10 * * * *")
+    // @Scheduled(cron = "0 */10 * * * *")
     public void scheduleBatch() {
         log.info("========================================");
         log.info("배송 배치 처리 스케줄러 시작");

@@ -20,12 +20,20 @@ public class RoutePosition {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    @Column(name = "position_id")
-    private Long positionId;
+    @Column(name = "pos_id")
+    private Long posId;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "route_id", nullable = false)
     private Route route;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "stop_from_id")
+    private RouteStop stopFrom;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "stop_to_id")
+    private RouteStop stopTo;
 
     @Column(nullable = false, precision = 9, scale = 6)
     private BigDecimal lat;
@@ -33,35 +41,34 @@ public class RoutePosition {
     @Column(nullable = false, precision = 9, scale = 6)
     private BigDecimal lng;
 
-    @Column(name = "altitude_m", precision = 8, scale = 2)
-    private BigDecimal altitudeM;
+    @Column(name = "speed_mps", precision = 6, scale = 2)
+    private BigDecimal speedMps;
 
-    @Column(name = "speed_kmh", precision = 6, scale = 2)
-    private BigDecimal speedKmh;
+    @Column(name = "battery_pct", precision = 5, scale = 2)
+    private BigDecimal batteryPct;
 
     @Column(nullable = false)
-    private Integer battery;
-
-    @Column(name = "recorded_at", nullable = false)
-    private LocalDateTime recordedAt;
+    private LocalDateTime ts;
 
     @PrePersist
     protected void onCreate() {
-        if (recordedAt == null) {
-            recordedAt = LocalDateTime.now();
+        if (ts == null) {
+            ts = LocalDateTime.now();
         }
     }
 
     @Builder
-    public RoutePosition(Route route, BigDecimal lat, BigDecimal lng, BigDecimal altitudeM,
-                         BigDecimal speedKmh, Integer battery, LocalDateTime recordedAt) {
+    public RoutePosition(Route route, RouteStop stopFrom, RouteStop stopTo,
+                         BigDecimal lat, BigDecimal lng, BigDecimal speedMps,
+                         BigDecimal batteryPct, LocalDateTime ts) {
         this.route = route;
+        this.stopFrom = stopFrom;
+        this.stopTo = stopTo;
         this.lat = lat;
         this.lng = lng;
-        this.altitudeM = altitudeM;
-        this.speedKmh = speedKmh;
-        this.battery = battery;
-        this.recordedAt = recordedAt;
+        this.speedMps = speedMps;
+        this.batteryPct = batteryPct;
+        this.ts = ts;
     }
 
     /**

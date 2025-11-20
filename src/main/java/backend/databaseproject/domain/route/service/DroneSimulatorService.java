@@ -87,12 +87,12 @@ public class DroneSimulatorService {
                 } else {
                     // 이전 stop에서 출발
                     RouteStop prevStop = stops.get(i - 1);
-                    startLat = prevStop.getArrivalLat();
-                    startLng = prevStop.getArrivalLng();
+                    startLat = prevStop.getLat();
+                    startLng = prevStop.getLng();
                 }
 
-                BigDecimal endLat = currentStop.getArrivalLat();
-                BigDecimal endLng = currentStop.getArrivalLng();
+                BigDecimal endLat = currentStop.getLat();
+                BigDecimal endLng = currentStop.getLng();
 
                 // 구간 거리 계산 (km)
                 double segmentDistanceKm = GeoUtils.calculateDistance(
@@ -118,17 +118,19 @@ public class DroneSimulatorService {
                     );
 
                     // 배터리 소모 계산 (거리에 비례)
-                    int battery = Math.max(0, INITIAL_BATTERY - (int) (totalDistanceTraveled * 5));
+                    double batteryPct = Math.max(0, INITIAL_BATTERY - (totalDistanceTraveled * 5));
 
                     // RoutePosition 생성 및 저장
+                    RouteStop stopFrom = (i > 0) ? stops.get(i - 1) : null;
                     RoutePosition routePosition = RoutePosition.builder()
                             .route(route)
+                            .stopFrom(stopFrom)
+                            .stopTo(currentStop)
                             .lat(BigDecimal.valueOf(position[0]).setScale(6, RoundingMode.HALF_UP))
                             .lng(BigDecimal.valueOf(position[1]).setScale(6, RoundingMode.HALF_UP))
-                            .altitudeM(ALTITUDE_M)
-                            .speedKmh(BigDecimal.valueOf(DRONE_SPEED_KMH).setScale(2, RoundingMode.HALF_UP))
-                            .battery(battery)
-                            .recordedAt(LocalDateTime.now())
+                            .speedMps(BigDecimal.valueOf(DRONE_SPEED_MS).setScale(2, RoundingMode.HALF_UP))
+                            .batteryPct(BigDecimal.valueOf(batteryPct).setScale(2, RoundingMode.HALF_UP))
+                            .ts(LocalDateTime.now())
                             .build();
 
                     routePositionRepository.save(routePosition);
@@ -138,9 +140,8 @@ public class DroneSimulatorService {
                     positionData.put("routeId", routeId);
                     positionData.put("lat", position[0]);
                     positionData.put("lng", position[1]);
-                    positionData.put("altitude", ALTITUDE_M);
                     positionData.put("speed", DRONE_SPEED_KMH);
-                    positionData.put("battery", battery);
+                    positionData.put("battery", batteryPct);
                     positionData.put("timestamp", LocalDateTime.now());
 
                     messagingTemplate.convertAndSend("/topic/route/" + routeId, positionData);
@@ -171,25 +172,22 @@ public class DroneSimulatorService {
 
             // 5. FlightLog 생성
             LocalDateTime flightEndTime = LocalDateTime.now();
-            Duration flightDuration = Duration.between(flightStartTime, flightEndTime);
-            int durationMinutes = (int) flightDuration.toMinutes();
+            int batteryUsed = (int) Math.min(INITIAL_BATTERY, totalDistanceTraveled * 5);
 
             FlightLog flightLog = FlightLog.builder()
                     .route(route)
                     .drone(route.getDrone())
                     .startTime(flightStartTime)
                     .endTime(flightEndTime)
-                    .distanceKm(BigDecimal.valueOf(totalDistanceTraveled).setScale(2, RoundingMode.HALF_UP))
-                    .durationMin(durationMinutes)
-                    .maxAltitudeM(ALTITUDE_M)
-                    .avgSpeedKmh(BigDecimal.valueOf(DRONE_SPEED_KMH).setScale(2, RoundingMode.HALF_UP))
-                    .batteryUsed(INITIAL_BATTERY - Math.max(0, INITIAL_BATTERY - (int) (totalDistanceTraveled * 5)))
+                    .distance(BigDecimal.valueOf(totalDistanceTraveled).setScale(3, RoundingMode.HALF_UP))
+                    .batteryUsed(batteryUsed)
                     .result(FlightResult.SUCCESS)
+                    .note("Flight completed successfully")
                     .build();
 
             flightLogRepository.save(flightLog);
-            log.info("FlightLog 생성 완료 - 총 거리: {:.2f}km, 소요 시간: {}분",
-                    totalDistanceTraveled, durationMinutes);
+            log.info("FlightLog 생성 완료 - 총 거리: {:.2f}km, 배터리 사용: {}%",
+                    totalDistanceTraveled, batteryUsed);
 
         } catch (InterruptedException e) {
             log.error("비행 시뮬레이션 중단됨 - RouteId: {}", routeId, e);

@@ -35,30 +35,30 @@ public class Route {
     @JoinColumn(name = "store_id", nullable = false)
     private Store store;
 
-    @Column(name = "total_distance_km", nullable = false, precision = 8, scale = 2)
-    private BigDecimal totalDistanceKm;
-
-    @Column(name = "total_weight_kg", nullable = false, precision = 8, scale = 3)
-    private BigDecimal totalWeightKg;
-
-    @Column(name = "estimated_duration_min", nullable = false)
-    private Integer estimatedDurationMin;
-
-    @Column(name = "actual_duration_min")
-    private Integer actualDurationMin;
-
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private RouteStatus status = RouteStatus.PLANNED;
 
-    @Column(name = "launched_at")
-    private LocalDateTime launchedAt;
+    @Column(name = "planned_start_at")
+    private LocalDateTime plannedStartAt;
 
-    @Column(name = "completed_at")
-    private LocalDateTime completedAt;
+    @Column(name = "planned_end_at")
+    private LocalDateTime plannedEndAt;
 
-    @Column(name = "created_at", nullable = false, updatable = false)
-    private LocalDateTime createdAt;
+    @Column(name = "actual_start_at")
+    private LocalDateTime actualStartAt;
+
+    @Column(name = "actual_end_at")
+    private LocalDateTime actualEndAt;
+
+    @Column(name = "planned_total_distance_km", precision = 8, scale = 3)
+    private BigDecimal plannedTotalDistanceKm;
+
+    @Column(name = "planned_total_payload_kg", precision = 8, scale = 3)
+    private BigDecimal plannedTotalPayloadKg;
+
+    @Column(length = 40)
+    private String heuristic;
 
     @Column(columnDefinition = "TEXT")
     private String note;
@@ -72,21 +72,16 @@ public class Route {
     @OneToMany(mappedBy = "route", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<FlightLog> flightLogs = new ArrayList<>();
 
-    @PrePersist
-    protected void onCreate() {
-        if (createdAt == null) {
-            createdAt = LocalDateTime.now();
-        }
-    }
-
     @Builder
-    public Route(Drone drone, Store store, BigDecimal totalDistanceKm, BigDecimal totalWeightKg,
-                 Integer estimatedDurationMin, String note) {
+    public Route(Drone drone, Store store, BigDecimal plannedTotalDistanceKm, BigDecimal plannedTotalPayloadKg,
+                 LocalDateTime plannedStartAt, LocalDateTime plannedEndAt, String heuristic, String note) {
         this.drone = drone;
         this.store = store;
-        this.totalDistanceKm = totalDistanceKm;
-        this.totalWeightKg = totalWeightKg;
-        this.estimatedDurationMin = estimatedDurationMin;
+        this.plannedTotalDistanceKm = plannedTotalDistanceKm;
+        this.plannedTotalPayloadKg = plannedTotalPayloadKg;
+        this.plannedStartAt = plannedStartAt;
+        this.plannedEndAt = plannedEndAt;
+        this.heuristic = heuristic;
         this.status = RouteStatus.PLANNED;
         this.note = note;
     }
@@ -103,7 +98,7 @@ public class Route {
      */
     public void launch() {
         this.status = RouteStatus.LAUNCHED;
-        this.launchedAt = LocalDateTime.now();
+        this.actualStartAt = LocalDateTime.now();
     }
 
     /**
@@ -111,7 +106,7 @@ public class Route {
      */
     public void complete() {
         this.status = RouteStatus.COMPLETED;
-        this.completedAt = LocalDateTime.now();
+        this.actualEndAt = LocalDateTime.now();
     }
 
     /**

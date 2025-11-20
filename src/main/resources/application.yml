@@ -4,19 +4,25 @@ spring:
 
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://localhost:3306/drone_delivery?useSSL=false&serverTimezone=Asia/Seoul&characterEncoding=UTF-8&allowPublicKeyRetrieval=true
+    url: jdbc:mysql://localhost:3306/drone_delivery?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
     username: root
-    password: your_password_here
+    password: a9153243
 
   jpa:
     hibernate:
-      ddl-auto: none  # DDL을 직접 실행할 것이므로 none으로 설정
+      ddl-auto: none
     properties:
       hibernate:
         dialect: org.hibernate.dialect.MySQLDialect
         format_sql: true
         show_sql: true
     open-in-view: false
+
+  sql:
+    init:
+      mode: always
+      encoding: UTF-8
+      continue-on-error: false
 
   jackson:
     serialization:
