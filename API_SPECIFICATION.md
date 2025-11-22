@@ -25,7 +25,7 @@ http://localhost:8080/api
 {
   "requestId": 1,
   "storeId": 1,
-  "storeName": "스타벅스 강남점",
+  "storeName": "편의점A",
   ...
 }
 ```
@@ -143,14 +143,14 @@ http://localhost:8080/api
 {
   "requestId": 1,
   "storeId": 1,
-  "storeName": "스타벅스 강남점",
+  "storeName": "편의점A",
   "customerId": 1,
   "customerName": "김철수",
   "customerAddress": "서울시 강남구 테헤란로 123",
   "totalWeightKg": 1.500,
   "totalAmount": 15000,
   "itemCount": 3,
-  "status": "COMPLETED",
+  "status": "FULFILLED",
   "createdAt": "2024-01-15T14:00:00",
   "assignedAt": "2024-01-15T14:10:00",
   "completedAt": "2024-01-15T14:45:00",
@@ -165,13 +165,21 @@ http://localhost:8080/api
       "subtotal": 6000
     }
   ],
-  "note": "조심스럽게 배송해주세요."
+  "note": "조심스럽게 배송해주세요.",
+  "routeId": 5
 }
 ```
 
+**Response 필드 설명**
+
+| 필드 | 타입 | 필수 | 설명 | 예시 |
+|------|------|------|------|------|
+| routeId | Long | X | 배송 경로 ID (배송 할당 후 드론 위치 추적에 사용) | 5 |
+
 **배송 상태 확인 방법**
-- `status` 필드 확인: `CREATED` (대기중) → `ASSIGNED` (배송중) → `COMPLETED` (완료)
+- `status` 필드 확인: `CREATED` (대기중) → `ASSIGNED` (배송중) → `FULFILLED` (완료)
 - `completedAt` 필드가 null이 아니면 배송 완료
+- `routeId`가 null이 아니면 배송이 할당된 상태 (드론 추적 가능)
 
 **Error Responses**
 - `404 Not Found`: 주문을 찾을 수 없음
@@ -275,7 +283,7 @@ http://localhost:8080/api
 ```json
 {
   "storeId": 1,
-  "storeName": "스타벅스 강남점",
+  "storeName": "편의점A",
   "deliveryRadiusKm": 2.00,
   "maxWeightKg": 5.000,
   "isDeliverable": true,
@@ -288,7 +296,7 @@ http://localhost:8080/api
 | 필드 | 타입 | 설명 | 예시 |
 |------|------|------|------|
 | storeId | Long | 매장 ID | 1 |
-| storeName | String | 매장명 | "스타벅스 강남점" |
+| storeName | String | 매장명 | "편의점A" |
 | deliveryRadiusKm | BigDecimal | 매장 배송 가능 반경 (km) | 2.00 |
 | maxWeightKg | BigDecimal | 시스템 드론 최대 적재 무게 (kg) | 5.000 |
 | isDeliverable | Boolean | 배송 가능 여부 (위치 제공 시) | true |
@@ -396,7 +404,7 @@ http://localhost:8080/api
   "droneId": 1,
   "droneModel": "DJI Phantom 4",
   "storeId": 1,
-  "storeName": "스타벅스 강남점",
+  "storeName": "편의점A",
   "status": "LAUNCHED",
   "plannedStartAt": "2024-01-15T14:00:00",
   "plannedEndAt": "2024-01-15T15:00:00",
@@ -410,7 +418,7 @@ http://localhost:8080/api
       "stopId": 1,
       "stopSeq": 1,
       "type": "PICKUP",
-      "name": "스타벅스 강남점",
+      "name": "편의점A",
       "lat": 37.123456,
       "lng": 127.123456,
       "status": "DEPARTED",
@@ -487,7 +495,7 @@ http://localhost:8080/api
     "droneId": 1,
     "droneModel": "DJI Phantom 4",
     "storeId": 1,
-    "storeName": "스타벅스 강남점",
+    "storeName": "편의점A",
     "status": "LAUNCHED",
     "plannedStartAt": "2024-01-15T14:00:00",
     "plannedEndAt": "2024-01-15T15:00:00",
@@ -549,14 +557,17 @@ http://localhost:8080/api
 |------|------|
 | CREATED | 주문 생성됨 (배송 대기 중) |
 | ASSIGNED | 드론에 배송 할당됨 (배송 진행 중) |
-| COMPLETED | 배송 완료 |
+| FULFILLED | 배송 완료 |
+| CANCELED | 주문 취소됨 |
+| FAILED | 배송 실패 |
 
 ### 경로 상태 (Route Status)
 
 | 상태 | 설명 |
 |------|------|
 | PLANNED | 경로 계획 완료 (출발 전) |
-| LAUNCHED | 배송 시작됨 (진행 중) |
+| LAUNCHED | 배송 시작됨 |
+| IN_PROGRESS | 배송 진행 중 |
 | COMPLETED | 배송 완료 |
 | ABORTED | 배송 중단됨 |
 
@@ -576,14 +587,15 @@ http://localhost:8080/api
 | ARRIVED | 도착 완료 |
 | DEPARTED | 출발 완료 |
 | SKIPPED | 스킵됨 |
+| FAILED | 실패 |
 
 ### 매장 유형 (Store Type)
 
 | 유형 | 설명 |
 |------|------|
 | CONVENIENCE | 편의점 |
-| RESTAURANT | 레스토랑 |
-| CAFE | 카페 |
+| PHARMACY | 약국 |
+| OTHER | 기타 |
 
 ---
 
@@ -754,7 +766,7 @@ GET /api/orders/1
 - 주문 상태에 따라 UI 업데이트:
   - `CREATED`: "주문 접수 완료, 배송 준비 중..."
   - `ASSIGNED`: "드론이 배송 중입니다!"
-  - `COMPLETED`: "배송이 완료되었습니다!"
+  - `FULFILLED`: "배송이 완료되었습니다!"
 
 ---
 
@@ -917,7 +929,7 @@ POST /api/routes/start-delivery
        현재Stop.actualDepartureAt = 현재시간
 
        // 해당 주문 완료 처리
-       해당주문.상태 = COMPLETED
+       해당주문.상태 = FULFILLED
        해당주문.completedAt = 현재시간
      END IF
 

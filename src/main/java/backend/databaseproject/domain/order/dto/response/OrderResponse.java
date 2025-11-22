@@ -66,10 +66,13 @@ public class OrderResponse {
     @Schema(description = "주문 메모", example = "조심스럽게 배송해주세요.", nullable = true)
     private String note;
 
+    @Schema(description = "배송 경로 ID (배송 할당 후 드론 추적에 사용)", example = "1", nullable = true)
+    private Long routeId;
+
     /**
      * DeliveryRequest 엔티티로부터 Response 생성 (Factory Method)
      */
-    public static OrderResponse from(DeliveryRequest deliveryRequest) {
+    public static OrderResponse from(DeliveryRequest deliveryRequest, Long routeId) {
         List<OrderItemResponse> items = deliveryRequest.getRequestItems()
                 .stream()
                 .map(OrderItemResponse::from)
@@ -91,6 +94,7 @@ public class OrderResponse {
                 .completedAt(deliveryRequest.getCompletedAt())
                 .items(items)
                 .note(deliveryRequest.getNote())
+                .routeId(routeId)
                 .build();
     }
 }

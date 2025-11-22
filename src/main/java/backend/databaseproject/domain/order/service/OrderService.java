@@ -13,6 +13,7 @@ import backend.databaseproject.domain.order.repository.DeliveryRequestRepository
 import backend.databaseproject.domain.order.repository.RequestItemRepository;
 import backend.databaseproject.domain.product.entity.Product;
 import backend.databaseproject.domain.product.repository.ProductRepository;
+import backend.databaseproject.domain.route.repository.RouteStopRequestRepository;
 import backend.databaseproject.domain.store.entity.Store;
 import backend.databaseproject.domain.store.entity.StoreProduct;
 import backend.databaseproject.domain.store.repository.StoreProductRepository;
@@ -43,6 +44,7 @@ public class OrderService {
     private final ProductRepository productRepository;
     private final StoreProductRepository storeProductRepository;
     private final DroneRepository droneRepository;
+    private final RouteStopRequestRepository routeStopRequestRepository;
 
     /**
      * 주문 생성
@@ -185,6 +187,7 @@ public class OrderService {
      * 주문 조회
      * DeliveryRequest 조회 (없으면 ORDER_NOT_FOUND)
      * RequestItem들도 함께 fetch
+     * 배송이 할당된 경우 routeId도 함께 조회
      * OrderResponse로 변환하여 반환
      */
     @Transactional(readOnly = true)
@@ -192,6 +195,9 @@ public class OrderService {
         DeliveryRequest deliveryRequest = deliveryRequestRepository.findById(requestId)
                 .orElseThrow(() -> new BaseException(ErrorCode.ORDER_NOT_FOUND));
 
-        return OrderResponse.from(deliveryRequest);
+        // 배송 경로 ID 조회 (배송이 할당되지 않은 경우 null)
+        Long routeId = routeStopRequestRepository.findRouteIdByRequestId(requestId).orElse(null);
+
+        return OrderResponse.from(deliveryRequest, routeId);
     }
 }
