@@ -35,8 +35,8 @@ jobs:
 
       - name: Docker 이미지 빌드 및 푸시
         run: |
-          docker build --platform linux/amd64 -t ${{ secrets.DOCKERHUB_LOGIN_USERNAME }}/sopkathon2:latest .
-          docker push ${{ secrets.DOCKERHUB_LOGIN_USERNAME }}/sopkathon2:latest
+          docker build --platform linux/amd64 -t ${{ secrets.DOCKERHUB_LOGIN_USERNAME }}/drone-delivery:latest .
+          docker push ${{ secrets.DOCKERHUB_LOGIN_USERNAME }}/drone-delivery:latest
 
       - name: EC2 서버 배포
         uses: appleboy/ssh-action@master
@@ -47,18 +47,18 @@ jobs:
           port: ${{ secrets.EC2_SSH_PORT }}
           script: |
             # 기존 컨테이너 중지 및 제거
-            sudo docker stop sopkathon2 || true
-            sudo docker rm sopkathon2 || true
+            sudo docker stop drone-delivery || true
+            sudo docker rm drone-delivery || true
 
             # 기존 이미지 제거
-            sudo docker rmi ${{ secrets.DOCKERHUB_LOGIN_USERNAME }}/sopkathon2:latest || true
+            sudo docker rmi ${{ secrets.DOCKERHUB_LOGIN_USERNAME }}/drone-delivery:latest || true
 
             # 새 이미지 pull
-            sudo docker pull ${{ secrets.DOCKERHUB_LOGIN_USERNAME }}/sopkathon2:latest
+            sudo docker pull ${{ secrets.DOCKERHUB_LOGIN_USERNAME }}/drone-delivery:latest
 
             # 새 컨테이너 실행 (환경변수 주입)
             sudo docker run -d \
-              --name sopkathon2 \
+              --name drone-delivery \
               -p 8080:8080 \
               --add-host=host.docker.internal:host-gateway \
               -e DB_HOST=host.docker.internal \
@@ -67,4 +67,4 @@ jobs:
               -e DB_USERNAME=${{ secrets.DB_USERNAME }} \
               -e DB_PASSWORD=${{ secrets.DB_PASSWORD }} \
               --restart unless-stopped \
-              ${{ secrets.DOCKERHUB_LOGIN_USERNAME }}/sopkathon2:latest
+              ${{ secrets.DOCKERHUB_LOGIN_USERNAME }}/drone-delivery:latest
