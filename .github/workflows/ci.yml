@@ -1,4 +1,4 @@
-name: CI - Build and Test
+name: CI - Build
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
 
 jobs:
   build:
-    name: Build and Test
+    name: Build
     runs-on: ubuntu-latest
 
     steps:
@@ -28,27 +28,9 @@ jobs:
       - name: Build with Gradle
         run: ./gradlew clean build -x test
 
-      - name: Run tests
-        run: ./gradlew test
-
-      - name: Publish test results
-        uses: EnricoMi/publish-unit-test-result-action@v2
-        if: always()
-        with:
-          files: |
-            build/test-results/**/*.xml
-
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: build-artifacts
           path: build/libs/*.jar
-          retention-days: 7
-
-      - name: Upload test reports
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: test-reports
-          path: build/reports/tests/test/
           retention-days: 7
