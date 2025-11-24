@@ -1,0 +1,44 @@
+# Git
+.git
+.gitignore
+.github
+
+# IDE
+.idea
+.vscode
+*.iml
+*.ipr
+*.iws
+
+# Build artifacts
+build/
+target/
+out/
+*.jar
+*.war
+*.ear
+
+# Gradle
+.gradle
+gradle-wrapper.jar
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Documentation
+*.md
+docs/
+client-examples/
+
+# Test files
+src/test/
+
+# Environment files
+.env
+.env.*
+!.env.example

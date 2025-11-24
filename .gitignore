@@ -37,3 +37,8 @@ out/
 .vscode/
 
 .claude
+
+### Environment Variables ###
+.env
+.env.local
+.env.*.local
