@@ -653,7 +653,7 @@ stompClient.subscribe('/topic/order/1', (message) => {
 ```http
 GET /api/stores?lat=37.4979&lng=127.0276
 ```
-> 기본 반경 10km 내 매장이 조회됩니다. 반경을 변경하려면 `radius` 파라미터를 추가하세요.
+> 각 매장의 배달 가능 거리(`deliveryRadiusKm`) 내에 사용자가 있는 매장만 조회됩니다.
 
 **서버 로직**
 1. `StoreController.getNearbyStores()` 호출
@@ -1246,7 +1246,7 @@ public void simulateFlight(Long routeId) {
 
 ### 고객 앱 플로우
 ```
-1. GET /api/stores?lat=37.4979&lng=127.0276 (기본 10km 내 매장 조회)
+1. GET /api/stores?lat=37.4979&lng=127.0276 (배달 가능한 매장 조회)
 2. GET /api/stores/1/delivery-info?lat=37.4979&lng=127.0276 (배송 정보 조회 - 무게 제한, 배송 가능 여부)
 3. GET /api/stores/1/categories (선택한 매장의 카테고리 조회)
 4. GET /api/stores/1/products?category=음료 (카테고리별 상품 조회)
