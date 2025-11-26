@@ -1,5 +1,6 @@
 package backend.databaseproject.domain.route.controller;
 
+import backend.databaseproject.domain.route.dto.request.StartDeliveryRequest;
 import backend.databaseproject.domain.route.dto.response.DronePositionResponse;
 import backend.databaseproject.domain.route.dto.response.RouteResponse;
 import backend.databaseproject.domain.route.service.DeliveryBatchService;
@@ -11,8 +12,11 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -121,18 +125,61 @@ public class RouteController {
     }
 
     /**
-     * 배송 시작 (수동)
-     * 현재까지 쌓여있는 주문들을 배송 시작합니다.
-     * 매니저가 "배송 진행" 버튼을 클릭하면 호출되는 API입니다.
+     * 배송 시작
+     * 점주가 선택한 주문들을 배송 시작합니다.
      *
+     * @param request 배송할 주문 ID 리스트 (최대 3개)
      * @return 성공 메시지
      */
     @PostMapping("/start-delivery")
     @Operation(
-            summary = "배송 시작 (수동)",
-            description = "현재까지 대기 중인 모든 주문을 수집하여 배송을 시작합니다. " +
+            summary = "배송 시작",
+            description = "점주가 선택한 주문들(최대 3개)을 배송 시작합니다. " +
+                         "모든 주문은 같은 매장이어야 하며, CREATED 상태여야 합니다. " +
+                         "드론의 최대 무게와 배터리를 고려하여 검증 후 배송을 시작합니다.",
+            responses = {
+                    @ApiResponse(
+                            responseCode = "200",
+                            description = "배송 시작 성공"
+                    ),
+                    @ApiResponse(
+                            responseCode = "400",
+                            description = "잘못된 요청 (주문 없음, 상태 오류, 매장 불일치, 적재량 초과, 배터리 부족 등)"
+                    ),
+                    @ApiResponse(
+                            responseCode = "404",
+                            description = "주문 또는 드론을 찾을 수 없음"
+                    )
+            }
+    )
+    public ResponseEntity<String> startDelivery(
+            @RequestBody @Valid StartDeliveryRequest request
+    ) {
+        log.info("API 호출: POST /api/routes/start-delivery");
+        log.info("요청 주문 ID: {}", request.getOrderIds());
+
+        try {
+            deliveryBatchService.processSelectedOrders(request.getOrderIds());
+            return ResponseEntity.ok("배송이 성공적으로 시작되었습니다.");
+        } catch (Exception e) {
+            log.error("배송 시작 중 오류 발생", e);
+            throw e;
+        }
+    }
+
+    /**
+     * 배송 배치 처리 (전체 자동)
+     * 현재까지 쌓여있는 모든 주문들을 자동으로 배송 시작합니다.
+     * 스케줄러나 관리자용 API입니다.
+     *
+     * @return 성공 메시지
+     */
+    @PostMapping("/batch-delivery")
+    @Operation(
+            summary = "배송 배치 처리 (전체 자동)",
+            description = "현재까지 대기 중인 모든 주문을 자동으로 수집하여 배송을 시작합니다. " +
                          "드론의 최대 무게와 배터리를 고려하여 먼저 온 주문 순으로 최적 경로를 탐색합니다. " +
-                         "데모 시연용 API입니다.",
+                         "스케줄러 또는 관리자용 API입니다.",
             responses = {
                     @ApiResponse(
                             responseCode = "200",
@@ -144,25 +191,14 @@ public class RouteController {
                     )
             }
     )
-    public String startDelivery() {
-        log.info("API 호출: POST /api/routes/start-delivery");
-        log.info("========================================");
-        log.info("매니저가 수동 배송 시작 요청");
-        log.info("========================================");
+    public ResponseEntity<String> batchDelivery() {
+        log.info("API 호출: POST /api/routes/batch-delivery");
 
         try {
             deliveryBatchService.processBatch();
-
-            log.info("========================================");
-            log.info("수동 배송 시작 완료");
-            log.info("========================================");
-
-            return "배송이 성공적으로 시작되었습니다.";
+            return ResponseEntity.ok("배송 배치 처리가 완료되었습니다.");
         } catch (Exception e) {
-            log.error("수동 배송 시작 중 오류 발생", e);
-            log.info("========================================");
-            log.info("수동 배송 시작 실패");
-            log.info("========================================");
+            log.error("배송 배치 처리 중 오류 발생", e);
             throw e;
         }
     }

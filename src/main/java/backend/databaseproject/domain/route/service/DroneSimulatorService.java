@@ -45,6 +45,9 @@ public class DroneSimulatorService {
     private static final int INITIAL_BATTERY = 100; // 초기 배터리 100%
     private static final BigDecimal ALTITUDE_M = new BigDecimal("50.00"); // 고도 50m
 
+    // 배터리-거리 변환 상수 (DeliveryBatchService와 동일)
+    private static final double BATTERY_TO_DISTANCE_RATIO = 0.004; // mAh당 km (5000mAh = 20km 기준)
+
     /**
      * 비행 시뮬레이션 시작 (비동기)
      *
@@ -74,6 +77,13 @@ public class DroneSimulatorService {
             LocalDateTime flightStartTime = LocalDateTime.now();
             int totalBatteryUsed = 0;
             double totalDistanceTraveled = 0.0;
+
+            // 드론의 배터리 용량으로 배터리 소모율 계산
+            double maxDistance = route.getDrone().getBatteryCapacity() * BATTERY_TO_DISTANCE_RATIO;
+            double batteryDrainRatePerKm = 100.0 / maxDistance; // %/km
+
+            log.info("드론 배터리 정보 - 용량: {}mAh, 최대 거리: {:.2f}km, 소모율: {:.2f}%/km",
+                    route.getDrone().getBatteryCapacity(), maxDistance, batteryDrainRatePerKm);
 
             // 3. RouteStops를 순회하면서 시뮬레이션
             for (int i = 0; i < stops.size(); i++) {
@@ -120,8 +130,8 @@ public class DroneSimulatorService {
                             fraction
                     );
 
-                    // 배터리 소모 계산 (거리에 비례)
-                    double batteryPct = Math.max(0, INITIAL_BATTERY - (totalDistanceTraveled * 5));
+                    // 배터리 소모 계산 (드론별 소모율 적용)
+                    double batteryPct = Math.max(0, INITIAL_BATTERY - (totalDistanceTraveled * batteryDrainRatePerKm));
 
                     // RoutePosition 생성 및 저장
                     RouteStop stopFrom = (i > 0) ? stops.get(i - 1) : null;

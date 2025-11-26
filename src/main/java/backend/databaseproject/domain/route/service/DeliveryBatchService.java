@@ -12,6 +12,8 @@ import backend.databaseproject.domain.route.repository.RouteStopRepository;
 import backend.databaseproject.domain.route.repository.RouteStopOrderRepository;
 import backend.databaseproject.domain.store.entity.Store;
 import backend.databaseproject.domain.store.repository.StoreRepository;
+import backend.databaseproject.global.exception.BatteryInsufficientException;
+import backend.databaseproject.global.exception.PayloadExceededException;
 import backend.databaseproject.global.util.GeoUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -46,6 +48,94 @@ public class DeliveryBatchService {
     private static final double DRONE_SPEED_KMH = 30.0; // 드론 평균 속도
     private static final int STOP_DELAY_MIN = 2; // 각 stop당 지연 시간 (분)
 
+    // 배터리-거리 변환 상수
+    private static final double BATTERY_TO_DISTANCE_RATIO = 0.004; // mAh당 km (5000mAh = 20km 기준)
+    private static final double SAFETY_MARGIN = 0.8; // 안전 마진 (80% 사용, 20% 여유)
+
+    /**
+     * 선택된 주문들로 배송 시작
+     * 점주가 선택한 주문 ID들을 받아 배송을 시작합니다.
+     *
+     * @param orderIds 배송할 주문 ID 리스트 (최대 3개)
+     * @throws IllegalArgumentException 주문을 찾을 수 없거나, 상태가 CREATED가 아니거나, 매장이 다른 경우
+     * @throws PayloadExceededException 드론의 적재량을 초과한 경우
+     * @throws BatteryInsufficientException 배터리 용량이 부족한 경우
+     */
+    @Transactional
+    public void processSelectedOrders(List<Long> orderIds) {
+        log.info("=== 선택된 주문 배송 시작 ===");
+        log.info("요청된 주문 ID: {}", orderIds);
+
+        // 1. 주문 조회
+        List<Order> orders = new ArrayList<>();
+        for (Long orderId : orderIds) {
+            Order order = orderRepository.findById(orderId)
+                    .orElseThrow(() -> new IllegalArgumentException("주문을 찾을 수 없습니다: " + orderId));
+            orders.add(order);
+        }
+
+        // 2. 모든 주문이 CREATED 상태인지 확인
+        for (Order order : orders) {
+            if (order.getStatus() != OrderStatus.CREATED) {
+                throw new IllegalArgumentException(
+                        String.format("주문 ID %d는 이미 처리되었거나 취소된 주문입니다. 현재 상태: %s",
+                                order.getOrderId(), order.getStatus()));
+            }
+        }
+
+        // 3. 모든 주문이 같은 매장인지 확인
+        Store store = orders.get(0).getStore();
+        for (Order order : orders) {
+            if (!order.getStore().getStoreId().equals(store.getStoreId())) {
+                throw new IllegalArgumentException(
+                        String.format("모든 주문은 같은 매장이어야 합니다. 매장 ID: %d vs %d",
+                                store.getStoreId(), order.getStore().getStoreId()));
+            }
+        }
+
+        log.info("매장: {}, 주문 수: {}", store.getName(), orders.size());
+
+        // 4. 사용 가능한 드론 조회
+        Drone availableDrone = droneRepository.findFirstByStoreAndStatus(store, DroneStatus.IDLE)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        String.format("매장 '%s'에 사용 가능한 드론이 없습니다.", store.getName())));
+
+        log.info("드론 할당 - DroneId: {}, Model: {}, MaxPayload: {}kg",
+                availableDrone.getDroneId(), availableDrone.getModel(), availableDrone.getMaxPayloadKg());
+
+        // 5. 무게 및 거리 검증
+        validatePayloadAndDistance(orders, availableDrone, store);
+
+        // 6. 주문 시간순 정렬
+        orders.sort((o1, o2) -> o1.getCreatedAt().compareTo(o2.getCreatedAt()));
+
+        // 7. 경로 최적화
+        List<Order> optimizedOrders = routeOptimizerService.optimizeRoute(orders, store);
+
+        // 8. Route 생성
+        Route route = createRoute(availableDrone, store, optimizedOrders);
+        routeRepository.save(route);
+        log.info("Route 생성 완료 - RouteId: {}", route.getRouteId());
+
+        // 9. RouteStop 생성
+        createRouteStops(route, store, optimizedOrders);
+
+        // 10. Order 상태 변경
+        for (Order order : optimizedOrders) {
+            order.assignDelivery();
+        }
+        orderRepository.saveAll(optimizedOrders);
+
+        // 11. 드론 상태 변경
+        availableDrone.changeStatus(DroneStatus.IN_FLIGHT);
+        droneRepository.save(availableDrone);
+
+        // 12. 비행 시뮬레이션 시작 (비동기)
+        droneSimulatorService.simulateFlight(route.getRouteId());
+
+        log.info("=== 선택된 주문 배송 시작 완료 - RouteId: {} ===", route.getRouteId());
+    }
+
     /**
      * 배치 처리 실행
      * 대기 중인 배송 요청들을 매장별로 그룹화하여 처리합니다.
@@ -55,7 +145,7 @@ public class DeliveryBatchService {
         log.info("=== 배송 배치 처리 시작 ===");
 
         try {
-            // 1. CREATED 상태의 Order들을 조회
+            // 1. CREATED 상태의 Order들을 조회 (주문 시간순 정렬)
             List<Order> pendingOrders = orderRepository
                     .findPendingOrdersWithStoreAndUser(OrderStatus.CREATED);
 
@@ -63,6 +153,9 @@ public class DeliveryBatchService {
                 log.info("처리할 배송 요청이 없습니다.");
                 return;
             }
+
+            // 주문 시간순으로 정렬 (먼저 주문한 고객 우선)
+            pendingOrders.sort((o1, o2) -> o1.getCreatedAt().compareTo(o2.getCreatedAt()));
 
             log.info("대기 중인 배송 요청: {}건", pendingOrders.size());
 
@@ -93,11 +186,22 @@ public class DeliveryBatchService {
                     continue;
                 }
 
-                log.info("드론 할당 - DroneId: {}, Model: {}, Store: {}",
-                        availableDrone.getDroneId(), availableDrone.getModel(), store.getName());
+                log.info("드론 할당 - DroneId: {}, Model: {}, MaxPayload: {}kg, Store: {}",
+                        availableDrone.getDroneId(), availableDrone.getModel(),
+                        availableDrone.getMaxPayloadKg(), store.getName());
+
+                // 드론의 적재량과 배터리를 고려하여 할당 가능한 주문 선택
+                List<Order> selectedOrders = selectOrdersForDrone(orders, availableDrone, store);
+
+                if (selectedOrders.isEmpty()) {
+                    log.warn("드론에 할당 가능한 주문이 없습니다. 매장 ID {} 스킵", storeId);
+                    continue;
+                }
+
+                log.info("할당 가능한 주문: {}건 / 전체 {}건", selectedOrders.size(), orders.size());
 
                 // 경로 최적화
-                List<Order> optimizedOrders = routeOptimizerService.optimizeRoute(orders, store);
+                List<Order> optimizedOrders = routeOptimizerService.optimizeRoute(selectedOrders, store);
 
                 if (optimizedOrders.isEmpty()) {
                     log.warn("최적화된 경로가 없습니다. 매장 ID {} 스킵", storeId);
@@ -261,5 +365,164 @@ public class DeliveryBatchService {
                 lat2.doubleValue(), lng2.doubleValue()
         );
         return BigDecimal.valueOf(distance).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * 드론의 적재량과 배터리를 고려하여 할당 가능한 주문 선택
+     * 주문 시간순으로 처리하되, 드론의 물리적 제약을 초과하지 않는 주문들만 선택합니다.
+     *
+     * @param orders 같은 매장의 대기 중인 주문들 (이미 시간순 정렬됨)
+     * @param drone 할당할 드론
+     * @param store 출발 매장
+     * @return 할당 가능한 주문 리스트
+     */
+    private List<Order> selectOrdersForDrone(List<Order> orders, Drone drone, Store store) {
+        List<Order> selectedOrders = new ArrayList<>();
+        BigDecimal totalWeight = BigDecimal.ZERO;
+        double totalDistance = 0.0;
+
+        BigDecimal currentLat = store.getLat();
+        BigDecimal currentLng = store.getLng();
+
+        // 드론의 배터리 용량으로 최대 거리 계산
+        double maxDistance = calculateMaxDistance(drone);
+
+        log.info("주문 선택 시작 - 드론 최대 적재량: {}kg, 최대 거리: {:.2f}km (배터리: {}mAh)",
+                drone.getMaxPayloadKg(), maxDistance, drone.getBatteryCapacity());
+
+        for (Order order : orders) {
+            // 1. 적재량 체크
+            BigDecimal newTotalWeight = totalWeight.add(order.getTotalWeightKg());
+            if (newTotalWeight.compareTo(drone.getMaxPayloadKg()) > 0) {
+                log.info("적재량 초과로 주문 스킵 - OrderId: {}, 현재 무게: {}kg, 주문 무게: {}kg, 최대: {}kg",
+                        order.getOrderId(), totalWeight, order.getTotalWeightKg(), drone.getMaxPayloadKg());
+                continue; // 적재량 초과, 다음 주문 확인
+            }
+
+            // 2. 거리 체크 (현재 위치 -> 배송지 -> 매장 귀환 거리 계산)
+            double distanceToOrder = GeoUtils.calculateDistance(
+                    currentLat.doubleValue(), currentLng.doubleValue(),
+                    order.getDestLat().doubleValue(), order.getDestLng().doubleValue()
+            );
+
+            double distanceBackToStore = GeoUtils.calculateDistance(
+                    order.getDestLat().doubleValue(), order.getDestLng().doubleValue(),
+                    store.getLat().doubleValue(), store.getLng().doubleValue()
+            );
+
+            double newTotalDistance = totalDistance + distanceToOrder + distanceBackToStore;
+
+            // 현재까지의 거리에서 귀환 거리를 빼고 새로운 경로를 추가
+            if (!selectedOrders.isEmpty()) {
+                // 이전 귀환 거리 제거
+                double prevReturnDistance = GeoUtils.calculateDistance(
+                        currentLat.doubleValue(), currentLng.doubleValue(),
+                        store.getLat().doubleValue(), store.getLng().doubleValue()
+                );
+                newTotalDistance = totalDistance - prevReturnDistance + distanceToOrder + distanceBackToStore;
+            }
+
+            if (newTotalDistance > maxDistance) {
+                log.info("거리 초과로 주문 스킵 - OrderId: {}, 예상 총 거리: {:.2f}km, 최대: {:.2f}km",
+                        order.getOrderId(), newTotalDistance, maxDistance);
+                continue; // 거리 초과, 다음 주문 확인
+            }
+
+            // 3. 제약 조건 통과 - 주문 추가
+            selectedOrders.add(order);
+            totalWeight = newTotalWeight;
+            totalDistance = newTotalDistance;
+            currentLat = order.getDestLat();
+            currentLng = order.getDestLng();
+
+            log.info("주문 선택 - OrderId: {}, 누적 무게: {}kg, 예상 거리: {:.2f}km",
+                    order.getOrderId(), totalWeight, totalDistance);
+        }
+
+        log.info("주문 선택 완료 - 선택: {}건, 총 무게: {}kg, 예상 거리: {:.2f}km",
+                selectedOrders.size(), totalWeight, totalDistance);
+
+        return selectedOrders;
+    }
+
+    /**
+     * 무게 및 거리 검증
+     * 주문들의 총 무게와 예상 거리가 드론의 제한을 초과하는지 확인합니다.
+     *
+     * @param orders 검증할 주문 리스트
+     * @param drone 할당된 드론
+     * @param store 출발 매장
+     * @throws PayloadExceededException 적재량 초과 시
+     * @throws BatteryInsufficientException 배터리 용량 부족 시
+     */
+    private void validatePayloadAndDistance(List<Order> orders, Drone drone, Store store) {
+        // 1. 총 무게 계산
+        BigDecimal totalWeight = orders.stream()
+                .map(Order::getTotalWeightKg)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        log.info("총 무게: {}kg / 최대 적재량: {}kg", totalWeight, drone.getMaxPayloadKg());
+
+        if (totalWeight.compareTo(drone.getMaxPayloadKg()) > 0) {
+            throw new PayloadExceededException(
+                    String.format("드론의 최대 적재량을 초과했습니다. 총 무게: %skg, 최대 적재량: %skg",
+                            totalWeight, drone.getMaxPayloadKg()));
+        }
+
+        // 2. 드론의 배터리 용량으로 최대 거리 계산
+        double maxDistance = calculateMaxDistance(drone);
+
+        // 3. 예상 거리 계산 (매장 -> 각 배송지 -> 매장)
+        double totalDistance = 0.0;
+        BigDecimal currentLat = store.getLat();
+        BigDecimal currentLng = store.getLng();
+
+        // 매장에서 각 배송지까지
+        for (Order order : orders) {
+            double distance = GeoUtils.calculateDistance(
+                    currentLat.doubleValue(), currentLng.doubleValue(),
+                    order.getDestLat().doubleValue(), order.getDestLng().doubleValue()
+            );
+            totalDistance += distance;
+            currentLat = order.getDestLat();
+            currentLng = order.getDestLng();
+        }
+
+        // 마지막 배송지에서 매장으로 귀환
+        double returnDistance = GeoUtils.calculateDistance(
+                currentLat.doubleValue(), currentLng.doubleValue(),
+                store.getLat().doubleValue(), store.getLng().doubleValue()
+        );
+        totalDistance += returnDistance;
+
+        log.info("예상 총 거리: {:.2f}km / 최대 거리: {:.2f}km (배터리: {}mAh)",
+                totalDistance, maxDistance, drone.getBatteryCapacity());
+
+        if (totalDistance > maxDistance) {
+            throw new BatteryInsufficientException(
+                    String.format("배터리 용량이 부족합니다. 예상 거리: %.2fkm, 최대 거리: %.2fkm (배터리: %dmAh)",
+                            totalDistance, maxDistance, drone.getBatteryCapacity()));
+        }
+
+        log.info("무게 및 거리 검증 통과");
+    }
+
+    /**
+     * 드론의 배터리 용량을 기반으로 최대 비행 가능 거리 계산
+     *
+     * @param drone 드론
+     * @return 최대 비행 가능 거리 (km) - 안전 마진 포함
+     */
+    private double calculateMaxDistance(Drone drone) {
+        // 배터리 용량(mAh)을 최대 거리(km)로 변환
+        double maxDistance = drone.getBatteryCapacity() * BATTERY_TO_DISTANCE_RATIO;
+
+        // 안전 마진 적용 (80% 사용, 20% 여유)
+        double safeDistance = maxDistance * SAFETY_MARGIN;
+
+        log.debug("드론 ID {}: 배터리 {}mAh, 최대 거리 {:.2f}km, 안전 거리 {:.2f}km",
+                drone.getDroneId(), drone.getBatteryCapacity(), maxDistance, safeDistance);
+
+        return safeDistance;
     }
 }

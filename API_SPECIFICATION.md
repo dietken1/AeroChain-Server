@@ -551,18 +551,72 @@ stompClient.subscribe('/topic/order/1', (message) => {
 
 ---
 
-### 3.4 배송 시작 (수동)
+### 3.4 배송 시작
 
 **POST** `/routes/start-delivery`
 
-현재까지 대기 중인 모든 주문을 수집하여 배송을 시작합니다. 점주/매니저가 "배송 진행" 버튼을 클릭하면 호출되는 API입니다.
+점주가 선택한 주문들(최대 3개)을 배송 시작합니다. 모든 주문은 같은 매장이어야 하며, CREATED 상태여야 합니다.
+
+**처리 과정**
+1. 요청된 주문 ID로 주문 조회
+2. 모든 주문이 CREATED 상태인지 확인
+3. 모든 주문이 같은 매장인지 확인
+4. 사용 가능한 드론 확인
+5. **드론의 최대 무게 및 배터리 검증** (초과 시 예외 발생)
+6. 주문 시간순 정렬 및 최적 경로 탐색 (Nearest Neighbor 휴리스틱)
+7. 경로 생성 및 드론 시뮬레이터 자동 시작
+
+**Request Body**
+```json
+{
+  "orderIds": [1, 2, 3]
+}
+```
+
+**Request 필드 설명**
+
+| 필드 | 타입 | 필수 | 설명 | 예시 |
+|------|------|------|------|------|
+| orderIds | Array<Long> | O | 배송할 주문 ID 리스트 (최소 1개, 최대 3개) | [1, 2, 3] |
+
+**Response (200 OK)**
+```json
+"배송이 성공적으로 시작되었습니다."
+```
+
+**Error Responses**
+- `400 Bad Request`: 잘못된 요청
+  - 주문 ID가 비어있음
+  - 주문 개수가 1개 미만 또는 3개 초과
+  - `PayloadExceededException`: **드론의 최대 적재량 초과** (예: "드론의 최대 적재량을 초과했습니다. 총 무게: 12.0kg, 최대 적재량: 10.0kg")
+  - `BatteryInsufficientException`: **배터리 용량 부족** (예: "배터리 용량이 부족합니다. 예상 거리: 18.00km, 최대 거리: 16.00km")
+  - 주문 상태가 CREATED가 아님 (이미 처리되었거나 취소됨)
+  - 모든 주문이 같은 매장이 아님
+- `404 Not Found`: 주문 또는 드론을 찾을 수 없음
+  - 존재하지 않는 주문 ID
+  - 해당 매장에 사용 가능한 드론이 없음
+
+> **중요**:
+> - 드론 최대 적재량: 드론마다 다를 수 있음 (일반적으로 5~10kg)
+> - 배터리 제한: 최대 16km (배터리 20% 여유 확보)
+> - 배터리 소모: km당 5% (총 20km까지 가능하나 안전 마진 고려)
+
+---
+
+### 3.5 배송 배치 처리 (전체 자동)
+
+**POST** `/routes/batch-delivery`
+
+현재까지 대기 중인 모든 주문을 자동으로 수집하여 배송을 시작합니다. 스케줄러 또는 관리자용 API입니다.
 
 **처리 과정**
 1. 대기 중인 주문들을 수집 (CREATED 상태)
-2. 사용 가능한 드론 확인
-3. 드론의 최대 무게 및 배터리 고려하여 배송 그룹 생성
-4. 각 그룹별로 최적 경로 탐색 (Nearest Neighbor 휴리스틱)
-5. 경로 생성 및 드론 시뮬레이터 자동 시작
+2. 주문 시간순으로 정렬
+3. 매장별로 그룹화
+4. 각 매장의 사용 가능한 드론 확인
+5. 드론의 최대 무게 및 배터리를 고려하여 할당 가능한 주문 선택
+6. 각 그룹별로 최적 경로 탐색 (Nearest Neighbor 휴리스틱)
+7. 경로 생성 및 드론 시뮬레이터 자동 시작
 
 **Request**
 
@@ -570,7 +624,7 @@ stompClient.subscribe('/topic/order/1', (message) => {
 
 **Response (200 OK)**
 ```json
-"배송이 성공적으로 시작되었습니다."
+"배송 배치 처리가 완료되었습니다."
 ```
 
 **Error Responses**
@@ -814,40 +868,44 @@ GET /api/orders/1
 #### Step 1: 점주가 배송 시작 요청
 
 **클라이언트 동작**
-- 점주가 관리자 페이지에서 "배송 진행" 버튼 클릭
-- 대기 중인 주문 목록 확인 후 배송 시작
+- 점주가 관리자 페이지에서 대기 중인 주문 목록 확인
+- 배송할 주문 선택 (최대 3개)
+- "배송 시작" 버튼 클릭
 
 **API 요청**
 ```http
 POST /api/routes/start-delivery
+Content-Type: application/json
+
+{
+  "orderIds": [1, 2, 3]
+}
 ```
 
 **서버 로직 (복잡한 비즈니스 로직)**
 
 1. **`RouteController.startDelivery()` 호출**
-2. **`DeliveryBatchService.processBatch()` 실행** - 핵심 배치 처리
-3. **대기 중인 주문 수집**:
-   - `OrderRepository.findPendingOrdersWithStoreAndUser(CREATED)` - 먼저 온 주문 순
+2. **`DeliveryBatchService.processSelectedOrders()` 실행** - 선택된 주문 처리
+3. **주문 조회 및 검증**:
+   - `OrderRepository.findById()` - 각 주문 ID로 주문 조회
+   - 모든 주문이 CREATED 상태인지 확인 (아니면 예외)
+   - 모든 주문이 같은 매장인지 확인 (아니면 예외)
 4. **사용 가능한 드론 조회**:
-   - `DroneRepository.findByIsActiveTrueAndStatusEquals(AVAILABLE)`
-5. **배송 그룹 생성 (Greedy Algorithm)**:
+   - `DroneRepository.findFirstByStoreAndStatus(store, IDLE)` - 해당 매장의 IDLE 드론
+5. **무게 및 거리 검증**:
    ```
-   FOR EACH 드론:
-     현재무게 = 0
-     주문목록 = []
+   총무게 = 주문들의 총 무게 합산
+   IF 총무게 > 드론최대적재량:
+     THROW PayloadExceededException
+   END IF
 
-     FOR EACH 주문 (먼저 온 순):
-       IF (현재무게 + 주문무게) <= 드론최대무게:
-         주문목록.추가(주문)
-         현재무게 += 주문무게
-       END IF
-     END FOR
-
-     IF 주문목록.size() > 0:
-       배송그룹.생성(드론, 주문목록)
-     END IF
-   END FOR
+   예상거리 = 매장 → 각 배송지 → 매장 거리 합산
+   IF 예상거리 > 16km:
+     THROW BatteryInsufficientException
+   END IF
    ```
+6. **주문 시간순 정렬**:
+   - `createdAt` 기준으로 정렬 (먼저 주문한 고객 우선)
 6. **각 배송 그룹별로 최적 경로 생성**:
    - `RouteOptimizerService.optimizeRoute()` 호출
    - **Nearest Neighbor 휴리스틱 알고리즘**:
@@ -1257,11 +1315,18 @@ public void simulateFlight(Long routeId) {
 
 ### 점주 앱 플로우
 ```
-1. POST /api/routes/start-delivery (배송 시작)
+1. 대기 중인 주문 목록 확인
+2. POST /api/routes/start-delivery { "orderIds": [1,2,3] } (선택한 주문 배송 시작)
+3. GET /api/routes/active (진행 중인 배송 조회)
+4. WebSocket 구독: /topic/route/{routeId} (실시간 위치)
+5. GET /api/routes/1/current-position (현재 위치 조회)
+6. GET /api/routes/1 (경로 상세 조회)
+```
+
+### 관리자 배치 처리 플로우
+```
+1. POST /api/routes/batch-delivery (모든 대기 주문 자동 배송 시작)
 2. GET /api/routes/active (진행 중인 배송 조회)
-3. WebSocket 구독: /topic/route/{routeId} (실시간 위치)
-4. GET /api/routes/1/current-position (현재 위치 조회)
-5. GET /api/routes/1 (경로 상세 조회)
 ```
 
 ---
@@ -1284,11 +1349,23 @@ public void simulateFlight(Long routeId) {
 
 ---
 
-**문서 버전**: 8.0
-**최종 수정일**: 2025-11-25
+**문서 버전**: 9.0
+**최종 수정일**: 2025-11-26
 **작성자**: Backend Development Team
 
 **변경 이력**
+- v9.0 (2025-11-26): 배송 시작 API 변경 - 점주 선택 방식으로 전환 ⭐⭐⭐
+  - **배송 시작 API 변경**: 점주가 주문 ID를 선택하여 배송 시작 (최대 3개)
+  - **Request DTO 추가**: `StartDeliveryRequest` - orderIds 리스트 (최소 1개, 최대 3개)
+  - **예외 클래스 추가**: `PayloadExceededException`, `BatteryInsufficientException`
+  - **검증 로직 강화**:
+    - 모든 주문이 CREATED 상태인지 확인
+    - 모든 주문이 같은 매장인지 확인
+    - 총 무게가 드론 최대 적재량을 초과하는지 검증
+    - 예상 거리가 배터리 용량(16km)을 초과하는지 검증
+  - **배송 배치 처리 API 신규 추가**: `POST /api/routes/batch-delivery` - 기존 자동 배치 기능
+  - **우선순위 변경**: 주문 시간순 (createdAt) 기준으로 정렬 후 경로 최적화
+  - **배터리 제한**: 최대 16km (배터리 20% 여유 확보, km당 5% 소모)
 - v8.0 (2025-11-25): 드론-매장 소속 관계 추가 ⭐
   - **Drone-Store 관계 추가**: Drone 엔티티에 store_id FK 추가 (Drone N:1 Store)
   - **배치 처리 로직 개선**: 각 매장의 주문을 해당 매장 소속 드론만 처리하도록 변경
