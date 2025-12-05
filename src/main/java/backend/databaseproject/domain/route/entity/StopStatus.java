@@ -8,5 +8,4 @@ public enum StopStatus {
     ARRIVED,   // 도착함
     DEPARTED,  // 출발함
     SKIPPED,   // 건너뜀
-    FAILED     // 실패
 }

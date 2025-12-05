@@ -54,11 +54,14 @@ public class DroneSimulatorService {
      * @param routeId 경로 ID
      */
     @Async
-    @Transactional
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
     public void simulateFlight(Long routeId) {
         log.info("드론 비행 시뮬레이션 시작 - RouteId: {}", routeId);
 
         try {
+            // 트랜잭션 커밋 완료를 위한 짧은 대기
+            Thread.sleep(100);
+
             // 1. Route 조회 (RouteStops 함께 fetch)
             Route route = routeRepository.findByIdWithDetails(routeId)
                     .orElseThrow(() -> new IllegalArgumentException("Route not found: " + routeId));
@@ -82,8 +85,10 @@ public class DroneSimulatorService {
             double maxDistance = route.getDrone().getBatteryCapacity() * BATTERY_TO_DISTANCE_RATIO;
             double batteryDrainRatePerKm = 100.0 / maxDistance; // %/km
 
-            log.info("드론 배터리 정보 - 용량: {}mAh, 최대 거리: {:.2f}km, 소모율: {:.2f}%/km",
-                    route.getDrone().getBatteryCapacity(), maxDistance, batteryDrainRatePerKm);
+            log.info("드론 배터리 정보 - 용량: {}mAh, 최대 거리: {}km, 소모율: {}%/km",
+                    route.getDrone().getBatteryCapacity(),
+                    String.format("%.2f", maxDistance),
+                    String.format("%.2f", batteryDrainRatePerKm));
 
             // 3. RouteStops를 순회하면서 시뮬레이션
             for (int i = 0; i < stops.size(); i++) {
@@ -116,14 +121,14 @@ public class DroneSimulatorService {
 
                 // 예상 이동 시간 계산 (초)
                 double segmentTimeSeconds = (segmentDistanceKm * 1000) / DRONE_SPEED_MS;
-                int steps = (int) Math.ceil(segmentTimeSeconds / (UPDATE_INTERVAL_MS / 1000.0));
+                int steps = Math.max(1, (int) Math.ceil(segmentTimeSeconds / (UPDATE_INTERVAL_MS / 1000.0)));
 
-                log.info("구간 시뮬레이션 시작 - Stop: {}/{}, 거리: {:.2f}km, 단계: {}",
-                        i + 1, stops.size(), segmentDistanceKm, steps);
+                log.info("구간 시뮬레이션 시작 - Stop: {}/{}, 거리: {}km, 단계: {}",
+                        i + 1, stops.size(), String.format("%.2f", segmentDistanceKm), steps);
 
                 // 선형 보간으로 이동
                 for (int step = 0; step <= steps; step++) {
-                    double fraction = (double) step / steps;
+                    double fraction = (steps > 0) ? (double) step / steps : 0.0;
                     double[] position = GeoUtils.interpolate(
                             startLat.doubleValue(), startLng.doubleValue(),
                             endLat.doubleValue(), endLng.doubleValue(),
@@ -158,6 +163,14 @@ public class DroneSimulatorService {
                     positionData.put("timestamp", LocalDateTime.now());
 
                     messagingTemplate.convertAndSend("/topic/route/" + routeId, positionData);
+
+                    // 진행 상황 로그 (10% 간격으로만)
+                    if (step % Math.max(1, steps / 10) == 0 || step == steps) {
+                        log.info("이동 중 - Stop {}/{}, 진행: {}% ({}/{}), 배터리: {}%",
+                                i + 1, stops.size(),
+                                (int)(fraction * 100), step, steps,
+                                String.format("%.1f", batteryPct));
+                    }
 
                     // 2초 대기
                     if (step < steps) {
@@ -207,6 +220,10 @@ public class DroneSimulatorService {
             routeRepository.save(route);
             log.info("Route 완료 - RouteId: {}", routeId);
 
+            // 드론 상태를 IDLE로 변경
+            route.getDrone().changeStatus(backend.databaseproject.domain.drone.entity.DroneStatus.IDLE);
+            log.info("드론 상태 변경 - DroneId: {}, Status: IDLE", route.getDrone().getDroneId());
+
             // 5. FlightLog 생성
             LocalDateTime flightEndTime = LocalDateTime.now();
             int batteryUsed = (int) Math.min(INITIAL_BATTERY, totalDistanceTraveled * 5);
@@ -223,8 +240,8 @@ public class DroneSimulatorService {
                     .build();
 
             flightLogRepository.save(flightLog);
-            log.info("FlightLog 생성 완료 - 총 거리: {:.2f}km, 배터리 사용: {}%",
-                    totalDistanceTraveled, batteryUsed);
+            log.info("FlightLog 생성 완료 - 총 거리: {}km, 배터리 사용: {}%",
+                    String.format("%.2f", totalDistanceTraveled), batteryUsed);
 
         } catch (InterruptedException e) {
             log.error("비행 시뮬레이션 중단됨 - RouteId: {}", routeId, e);

@@ -78,15 +78,15 @@ public class RouteOptimizerService {
                 currentLat = nearest.getDestLat();
                 currentLng = nearest.getDestLng();
 
-                log.debug("다음 배송지 선택 - OrderId: {}, 거리: {:.2f}km",
-                         nearest.getOrderId(), minDistance);
+                log.debug("다음 배송지 선택 - OrderId: {}, 거리: {}km",
+                         nearest.getOrderId(), String.format("%.2f", minDistance));
             }
         }
 
         // 총 경로 거리 계산
         double totalDistance = calculateTotalDistance(optimizedRoute, store);
-        log.info("경로 최적화 완료 - 총 거리: {:.2f}km, 배송지 수: {}",
-                totalDistance, optimizedRoute.size());
+        log.info("경로 최적화 완료 - 총 거리: {}km, 배송지 수: {}",
+                String.format("%.2f", totalDistance), optimizedRoute.size());
 
         return optimizedRoute;
     }

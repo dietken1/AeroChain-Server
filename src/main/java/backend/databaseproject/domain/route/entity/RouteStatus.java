@@ -6,7 +6,6 @@ package backend.databaseproject.domain.route.entity;
 public enum RouteStatus {
     PLANNED,      // 계획됨
     LAUNCHED,     // 출발함
-    IN_PROGRESS,  // 진행 중
     COMPLETED,    // 완료
     ABORTED       // 중단됨
 }

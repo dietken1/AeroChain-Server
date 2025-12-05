@@ -226,8 +226,16 @@ public class DeliveryBatchService {
                 availableDrone.changeStatus(DroneStatus.IN_FLIGHT);
                 droneRepository.save(availableDrone);
 
-                // 비행 시뮬레이션 시작 (비동기)
-                droneSimulatorService.simulateFlight(route.getRouteId());
+                // 트랜잭션 커밋 후 비행 시뮬레이션 시작 (비동기)
+                Long routeIdForSimulation = route.getRouteId();
+                org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                        new org.springframework.transaction.support.TransactionSynchronization() {
+                            @Override
+                            public void afterCommit() {
+                                droneSimulatorService.simulateFlight(routeIdForSimulation);
+                            }
+                        }
+                );
 
                 processedCount += optimizedOrders.size();
                 log.info("매장 ID {} 처리 완료 - {}건 배송 할당", storeId, optimizedOrders.size());
@@ -387,8 +395,8 @@ public class DeliveryBatchService {
         // 드론의 배터리 용량으로 최대 거리 계산
         double maxDistance = calculateMaxDistance(drone);
 
-        log.info("주문 선택 시작 - 드론 최대 적재량: {}kg, 최대 거리: {:.2f}km (배터리: {}mAh)",
-                drone.getMaxPayloadKg(), maxDistance, drone.getBatteryCapacity());
+        log.info("주문 선택 시작 - 드론 최대 적재량: {}kg, 최대 거리: {}km (배터리: {}mAh)",
+                drone.getMaxPayloadKg(), String.format("%.2f", maxDistance), drone.getBatteryCapacity());
 
         for (Order order : orders) {
             // 1. 적재량 체크
@@ -423,8 +431,8 @@ public class DeliveryBatchService {
             }
 
             if (newTotalDistance > maxDistance) {
-                log.info("거리 초과로 주문 스킵 - OrderId: {}, 예상 총 거리: {:.2f}km, 최대: {:.2f}km",
-                        order.getOrderId(), newTotalDistance, maxDistance);
+                log.info("거리 초과로 주문 스킵 - OrderId: {}, 예상 총 거리: {}km, 최대: {}km",
+                        order.getOrderId(), String.format("%.2f", newTotalDistance), String.format("%.2f", maxDistance));
                 continue; // 거리 초과, 다음 주문 확인
             }
 
@@ -435,12 +443,12 @@ public class DeliveryBatchService {
             currentLat = order.getDestLat();
             currentLng = order.getDestLng();
 
-            log.info("주문 선택 - OrderId: {}, 누적 무게: {}kg, 예상 거리: {:.2f}km",
-                    order.getOrderId(), totalWeight, totalDistance);
+            log.info("주문 선택 - OrderId: {}, 누적 무게: {}kg, 예상 거리: {}km",
+                    order.getOrderId(), totalWeight, String.format("%.2f", totalDistance));
         }
 
-        log.info("주문 선택 완료 - 선택: {}건, 총 무게: {}kg, 예상 거리: {:.2f}km",
-                selectedOrders.size(), totalWeight, totalDistance);
+        log.info("주문 선택 완료 - 선택: {}건, 총 무게: {}kg, 예상 거리: {}km",
+                selectedOrders.size(), totalWeight, String.format("%.2f", totalDistance));
 
         return selectedOrders;
     }
@@ -495,8 +503,8 @@ public class DeliveryBatchService {
         );
         totalDistance += returnDistance;
 
-        log.info("예상 총 거리: {:.2f}km / 최대 거리: {:.2f}km (배터리: {}mAh)",
-                totalDistance, maxDistance, drone.getBatteryCapacity());
+        log.info("예상 총 거리: {}km / 최대 거리: {}km (배터리: {}mAh)",
+                String.format("%.2f", totalDistance), String.format("%.2f", maxDistance), drone.getBatteryCapacity());
 
         if (totalDistance > maxDistance) {
             throw new BatteryInsufficientException(
@@ -520,8 +528,8 @@ public class DeliveryBatchService {
         // 안전 마진 적용 (80% 사용, 20% 여유)
         double safeDistance = maxDistance * SAFETY_MARGIN;
 
-        log.debug("드론 ID {}: 배터리 {}mAh, 최대 거리 {:.2f}km, 안전 거리 {:.2f}km",
-                drone.getDroneId(), drone.getBatteryCapacity(), maxDistance, safeDistance);
+        log.debug("드론 ID {}: 배터리 {}mAh, 최대 거리 {}km, 안전 거리 {}km",
+                drone.getDroneId(), drone.getBatteryCapacity(), String.format("%.2f", maxDistance), String.format("%.2f", safeDistance));
 
         return safeDistance;
     }
