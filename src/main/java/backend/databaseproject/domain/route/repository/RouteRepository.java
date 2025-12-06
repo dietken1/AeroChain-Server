@@ -36,7 +36,7 @@ public interface RouteRepository extends JpaRepository<Route, Long> {
     List<Route> findActiveRoutesWithStops();
 
     /**
-     * 특정 경로의 상세 정보 조회 (모든 연관 엔티티 fetch)
+     * 특정 경로의 상세 정보 조회 (RouteStops와 기본 정보만)
      */
     @Query("SELECT r FROM Route r " +
            "LEFT JOIN FETCH r.routeStops rs " +
@@ -44,4 +44,12 @@ public interface RouteRepository extends JpaRepository<Route, Long> {
            "LEFT JOIN FETCH r.store " +
            "WHERE r.routeId = :routeId")
     Optional<Route> findByIdWithDetails(@Param("routeId") Long routeId);
+
+    /**
+     * 특정 경로의 모든 RouteStop ID 조회
+     */
+    @Query("SELECT rs.stopId FROM Route r " +
+           "JOIN r.routeStops rs " +
+           "WHERE r.routeId = :routeId")
+    List<Long> findStopIdsByRouteId(@Param("routeId") Long routeId);
 }

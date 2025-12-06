@@ -6,6 +6,13 @@ USE drone_delivery;
 -- 0. 데이터 초기화 (기존 데이터 삭제)
 -- ========================================
 SET FOREIGN_KEY_CHECKS = 0;
+TRUNCATE TABLE route_position;
+TRUNCATE TABLE route_stop_order;
+TRUNCATE TABLE route_stop;
+TRUNCATE TABLE flight_log;
+TRUNCATE TABLE route;
+TRUNCATE TABLE order_item;
+TRUNCATE TABLE orders;
 TRUNCATE TABLE store_product;
 TRUNCATE TABLE user;
 TRUNCATE TABLE product;
@@ -19,7 +26,7 @@ SET FOREIGN_KEY_CHECKS = 1;
 -- ========================================
 INSERT INTO user (name, phone, address, lat, lng, role, registered_at) VALUES
 -- 영통구 사용자 - CUSTOMER (8명)
-('정원준', '010-1001-0001', '경기 수원시 영통구 광교중앙로 125', 37.283123, 127.043234, 'CUSTOMER', NOW()),
+('정원준', '010-1001-0001', '경기 수원시 영통구 광교중앙로 125', 37.284744, 127.044668, 'CUSTOMER', NOW()),
 ('이지은', '010-1001-0002', '경기 수원시 영통구 센트럴타운로 45', 37.294234, 127.051345, 'CUSTOMER', NOW()),
 ('박서준', '010-1001-0003', '경기 수원시 영통구 매탄로 234', 37.278345, 127.022456, 'CUSTOMER', NOW()),
 ('최유진', '010-1001-0004', '경기 수원시 영통구 봉영로 123', 37.288456, 127.048567, 'CUSTOMER', NOW()),

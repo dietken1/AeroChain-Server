@@ -38,6 +38,8 @@ public class DroneSimulatorService {
     private final FlightLogRepository flightLogRepository;
     private final OrderRepository orderRepository;
     private final SimpMessagingTemplate messagingTemplate;
+    private final RouteStopProcessingService routeStopProcessingService;
+    private final org.springframework.transaction.PlatformTransactionManager transactionManager;
 
     private static final int UPDATE_INTERVAL_MS = 2000; // 2초마다 업데이트
     private static final double DRONE_SPEED_KMH = 30.0; // 드론 평균 속도 30km/h
@@ -54,7 +56,6 @@ public class DroneSimulatorService {
      * @param routeId 경로 ID
      */
     @Async
-    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
     public void simulateFlight(Long routeId) {
         log.info("드론 비행 시뮬레이션 시작 - RouteId: {}", routeId);
 
@@ -62,31 +63,62 @@ public class DroneSimulatorService {
             // 트랜잭션 커밋 완료를 위한 짧은 대기
             Thread.sleep(100);
 
-            // 1. Route 조회 (RouteStops 함께 fetch)
-            Route route = routeRepository.findByIdWithDetails(routeId)
-                    .orElseThrow(() -> new IllegalArgumentException("Route not found: " + routeId));
+            // 1. Route 조회 및 상태 변경 (별도 트랜잭션)
+            org.springframework.transaction.support.DefaultTransactionDefinition txDef =
+                new org.springframework.transaction.support.DefaultTransactionDefinition();
+            txDef.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+            org.springframework.transaction.TransactionStatus txStatus = transactionManager.getTransaction(txDef);
 
-            List<RouteStop> stops = route.getRouteStops();
-            if (stops.isEmpty()) {
-                log.error("RouteStops가 없습니다 - RouteId: {}", routeId);
-                return;
+            Route route;
+            List<RouteStop> stops;
+            backend.databaseproject.domain.drone.entity.Drone drone;
+
+            try {
+                // 1차 조회: Route, RouteStops, Drone, Store
+                route = routeRepository.findByIdWithDetails(routeId)
+                        .orElseThrow(() -> new IllegalArgumentException("Route not found: " + routeId));
+
+                stops = route.getRouteStops();
+                if (stops.isEmpty()) {
+                    log.error("RouteStops가 없습니다 - RouteId: {}", routeId);
+                    transactionManager.rollback(txStatus);
+                    return;
+                }
+
+                // 2차 조회: RouteStopOrders를 fetch (MultipleBagFetchException 회피)
+                // RouteStop ID 목록 조회
+                List<Long> stopIds = routeRepository.findStopIdsByRouteId(routeId);
+                // RouteStopOrders를 한 번에 fetch
+                routeStopRepository.findAllWithOrdersByIds(stopIds);
+
+                // Route 상태를 LAUNCHED로 변경
+                route.launch();
+                routeRepository.saveAndFlush(route);
+                drone = route.getDrone();
+
+                transactionManager.commit(txStatus);
+                log.info("Route 상태를 LAUNCHED로 변경 - RouteId: {}", routeId);
+            } catch (Exception e) {
+                transactionManager.rollback(txStatus);
+                throw e;
             }
 
-            // 2. Route 상태를 LAUNCHED로 변경
-            route.launch();
-            routeRepository.save(route);
-            log.info("Route 상태를 LAUNCHED로 변경 - RouteId: {}", routeId);
+            // Store 정보 추출 (첫 stop에서 가져오기)
+            BigDecimal storeLat = stops.get(0).getStopType() == backend.databaseproject.domain.route.entity.StopType.PICKUP ?
+                    stops.get(0).getLat() : null;
+            BigDecimal storeLng = stops.get(0).getStopType() == backend.databaseproject.domain.route.entity.StopType.PICKUP ?
+                    stops.get(0).getLng() : null;
 
             LocalDateTime flightStartTime = LocalDateTime.now();
             int totalBatteryUsed = 0;
             double totalDistanceTraveled = 0.0;
 
             // 드론의 배터리 용량으로 배터리 소모율 계산
-            double maxDistance = route.getDrone().getBatteryCapacity() * BATTERY_TO_DISTANCE_RATIO;
+            double maxDistance = drone.getBatteryCapacity() * BATTERY_TO_DISTANCE_RATIO;
             double batteryDrainRatePerKm = 100.0 / maxDistance; // %/km
 
             log.info("드론 배터리 정보 - 용량: {}mAh, 최대 거리: {}km, 소모율: {}%/km",
-                    route.getDrone().getBatteryCapacity(),
+                    drone.getBatteryCapacity(),
                     String.format("%.2f", maxDistance),
                     String.format("%.2f", batteryDrainRatePerKm));
 
@@ -100,8 +132,8 @@ public class DroneSimulatorService {
                 // 시작 위치 결정
                 if (i == 0) {
                     // 첫 번째 stop은 매장에서 출발
-                    startLat = route.getStore().getLat();
-                    startLng = route.getStore().getLng();
+                    startLat = storeLat != null ? storeLat : currentStop.getLat();
+                    startLng = storeLng != null ? storeLng : currentStop.getLng();
                 } else {
                     // 이전 stop에서 출발
                     RouteStop prevStop = stops.get(i - 1);
@@ -138,12 +170,15 @@ public class DroneSimulatorService {
                     // 배터리 소모 계산 (드론별 소모율 적용)
                     double batteryPct = Math.max(0, INITIAL_BATTERY - (totalDistanceTraveled * batteryDrainRatePerKm));
 
-                    // RoutePosition 생성 및 저장
-                    RouteStop stopFrom = (i > 0) ? stops.get(i - 1) : null;
+                    // RoutePosition 생성 및 저장 (트랜잭션 없이 직접 저장)
+                    Route routeRef = routeRepository.getReferenceById(routeId);
+                    RouteStop stopFrom = (i > 0) ? routeStopRepository.getReferenceById(stops.get(i - 1).getStopId()) : null;
+                    RouteStop stopTo = routeStopRepository.getReferenceById(currentStop.getStopId());
+
                     RoutePosition routePosition = RoutePosition.builder()
-                            .route(route)
+                            .route(routeRef)
                             .stopFrom(stopFrom)
-                            .stopTo(currentStop)
+                            .stopTo(stopTo)
                             .lat(BigDecimal.valueOf(position[0]).setScale(6, RoundingMode.HALF_UP))
                             .lng(BigDecimal.valueOf(position[1]).setScale(6, RoundingMode.HALF_UP))
                             .speedMps(BigDecimal.valueOf(DRONE_SPEED_MS).setScale(2, RoundingMode.HALF_UP))
@@ -162,7 +197,35 @@ public class DroneSimulatorService {
                     positionData.put("battery", batteryPct);
                     positionData.put("timestamp", LocalDateTime.now());
 
+                    // Route 구독자에게 전송 (점주용)
                     messagingTemplate.convertAndSend("/topic/route/" + routeId, positionData);
+
+                    // 아직 배송되지 않은 모든 주문들에게 위치 정보 전송 (고객용)
+                    // 현재 stop 이후의 모든 DROP stop들의 주문에게 전송 (단, 이미 도착한 stop은 제외)
+                    for (int j = i; j < stops.size(); j++) {
+                        RouteStop futureStop = stops.get(j);
+
+                        // DROP 타입이고, 아직 도착하지 않은 stop만 처리
+                        if (futureStop.getStopType() == StopType.DROP &&
+                            futureStop.getStatus() != StopStatus.ARRIVED &&
+                            futureStop.getStatus() != StopStatus.DEPARTED) {
+
+                            List<RouteStopOrder> routeStopOrders = futureStop.getRouteStopOrders();
+                            for (RouteStopOrder routeStopOrder : routeStopOrders) {
+                                Long orderId = routeStopOrder.getOrder().getOrderId();
+                                Map<String, Object> customerPositionData = new HashMap<>();
+                                customerPositionData.put("orderId", orderId);
+                                customerPositionData.put("lat", position[0]);
+                                customerPositionData.put("lng", position[1]);
+                                customerPositionData.put("speed", DRONE_SPEED_KMH);
+                                customerPositionData.put("battery", batteryPct);
+                                customerPositionData.put("timestamp", LocalDateTime.now());
+                                customerPositionData.put("status", "IN_TRANSIT");
+
+                                messagingTemplate.convertAndSend("/topic/order/" + orderId + "/position", customerPositionData);
+                            }
+                        }
+                    }
 
                     // 진행 상황 로그 (10% 간격으로만)
                     if (step % Math.max(1, steps / 10) == 0 || step == steps) {
@@ -178,70 +241,52 @@ public class DroneSimulatorService {
                     }
                 }
 
-                // Stop 도착 처리
-                currentStop.arrive();
-                routeStopRepository.save(currentStop);
-                log.info("Stop 도착 - StopId: {}, Type: {}", currentStop.getStopId(), currentStop.getStopType());
-
-                // DROP 타입은 잠시 대기 (배송 시뮬레이션)
-                if (currentStop.getStopType() == StopType.DROP) {
-                    Thread.sleep(3000); // 3초 대기
-                    currentStop.depart();
-                    routeStopRepository.save(currentStop);
-
-                    // 이 정류장과 연결된 주문들을 완료 처리
-                    List<RouteStopOrder> routeStopOrders = currentStop.getRouteStopOrders();
-                    for (RouteStopOrder routeStopOrder : routeStopOrders) {
-                        Order order = routeStopOrder.getOrder();
-                        order.completeDelivery();
-                        orderRepository.save(order);
-
-                        log.info("주문 완료 처리 - OrderId: {}, User: {}",
-                                order.getOrderId(), order.getUser().getName());
-
-                        // WebSocket으로 배송 완료 알림 전송
-                        Map<String, Object> completionData = new HashMap<>();
-                        completionData.put("orderId", order.getOrderId());
-                        completionData.put("status", "FULFILLED");
-                        completionData.put("message", "배송이 완료되었습니다!");
-                        completionData.put("completedAt", LocalDateTime.now());
-                        messagingTemplate.convertAndSend(
-                                "/topic/order/" + order.getOrderId(),
-                                completionData
-                        );
-
-                        log.info("배송 완료 알림 전송 - OrderId: {}", order.getOrderId());
-                    }
-                }
+                // Stop 도착 처리 (별도 서비스의 별도 트랜잭션으로 즉시 커밋)
+                routeStopProcessingService.processStopArrival(currentStop.getStopId());
             }
 
-            // 4. 모든 Stop 완료 후 Route 상태를 COMPLETED로 변경
-            route.complete();
-            routeRepository.save(route);
-            log.info("Route 완료 - RouteId: {}", routeId);
+            // 4. 모든 Stop 완료 후 Route 상태를 COMPLETED로 변경 및 FlightLog 생성 (별도 트랜잭션)
+            org.springframework.transaction.support.DefaultTransactionDefinition txDef2 =
+                new org.springframework.transaction.support.DefaultTransactionDefinition();
+            txDef2.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+            org.springframework.transaction.TransactionStatus txStatus2 = transactionManager.getTransaction(txDef2);
 
-            // 드론 상태를 IDLE로 변경
-            route.getDrone().changeStatus(backend.databaseproject.domain.drone.entity.DroneStatus.IDLE);
-            log.info("드론 상태 변경 - DroneId: {}, Status: IDLE", route.getDrone().getDroneId());
+            try {
+                Route routeToComplete = routeRepository.findById(routeId)
+                        .orElseThrow(() -> new IllegalArgumentException("Route not found: " + routeId));
 
-            // 5. FlightLog 생성
-            LocalDateTime flightEndTime = LocalDateTime.now();
-            int batteryUsed = (int) Math.min(INITIAL_BATTERY, totalDistanceTraveled * 5);
+                routeToComplete.complete();
+                routeRepository.saveAndFlush(routeToComplete);
+                log.info("Route 완료 - RouteId: {}", routeId);
 
-            FlightLog flightLog = FlightLog.builder()
-                    .route(route)
-                    .drone(route.getDrone())
-                    .startTime(flightStartTime)
-                    .endTime(flightEndTime)
-                    .distance(BigDecimal.valueOf(totalDistanceTraveled).setScale(3, RoundingMode.HALF_UP))
-                    .batteryUsed(batteryUsed)
-                    .result(FlightResult.SUCCESS)
-                    .note("Flight completed successfully")
-                    .build();
+                // 드론 상태를 IDLE로 변경
+                drone.changeStatus(backend.databaseproject.domain.drone.entity.DroneStatus.IDLE);
+                log.info("드론 상태 변경 - DroneId: {}, Status: IDLE", drone.getDroneId());
 
-            flightLogRepository.save(flightLog);
-            log.info("FlightLog 생성 완료 - 총 거리: {}km, 배터리 사용: {}%",
-                    String.format("%.2f", totalDistanceTraveled), batteryUsed);
+                // FlightLog 생성
+                LocalDateTime flightEndTime = LocalDateTime.now();
+                int batteryUsed = (int) Math.min(INITIAL_BATTERY, totalDistanceTraveled * 5);
+
+                FlightLog flightLog = FlightLog.builder()
+                        .route(routeToComplete)
+                        .drone(drone)
+                        .startTime(flightStartTime)
+                        .endTime(flightEndTime)
+                        .distance(BigDecimal.valueOf(totalDistanceTraveled).setScale(3, RoundingMode.HALF_UP))
+                        .batteryUsed(batteryUsed)
+                        .result(FlightResult.SUCCESS)
+                        .note("Flight completed successfully")
+                        .build();
+
+                flightLogRepository.saveAndFlush(flightLog);
+                log.info("FlightLog 생성 완료 - 총 거리: {}km, 배터리 사용: {}%",
+                        String.format("%.2f", totalDistanceTraveled), batteryUsed);
+
+                transactionManager.commit(txStatus2);
+            } catch (Exception e) {
+                transactionManager.rollback(txStatus2);
+                throw e;
+            }
 
         } catch (InterruptedException e) {
             log.error("비행 시뮬레이션 중단됨 - RouteId: {}", routeId, e);

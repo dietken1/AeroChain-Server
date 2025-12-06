@@ -7,6 +7,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * 경로 정류장 Repository
@@ -27,4 +28,23 @@ public interface RouteStopRepository extends JpaRepository<RouteStop, Long> {
            "ORDER BY rs.stopSequence ASC " +
            "LIMIT 1")
     RouteStop findNextPendingStop(@Param("routeId") Long routeId);
+
+    /**
+     * RouteStop을 RouteStopOrders와 함께 조회
+     */
+    @Query("SELECT rs FROM RouteStop rs " +
+           "LEFT JOIN FETCH rs.routeStopOrders rso " +
+           "LEFT JOIN FETCH rso.order o " +
+           "LEFT JOIN FETCH o.user " +
+           "WHERE rs.stopId = :stopId")
+    Optional<RouteStop> findByIdWithOrders(@Param("stopId") Long stopId);
+
+    /**
+     * 여러 RouteStop의 RouteStopOrders를 한 번에 fetch
+     */
+    @Query("SELECT DISTINCT rs FROM RouteStop rs " +
+           "LEFT JOIN FETCH rs.routeStopOrders rso " +
+           "LEFT JOIN FETCH rso.order " +
+           "WHERE rs.stopId IN :stopIds")
+    List<RouteStop> findAllWithOrdersByIds(@Param("stopIds") List<Long> stopIds);
 }

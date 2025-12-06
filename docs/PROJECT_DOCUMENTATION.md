@@ -2319,10 +2319,11 @@ java -jar app.jar
 ### 14.4 Docker (선택사항)
 
 **Dockerfile**
+
 ```dockerfile
 FROM openjdk:17-jdk-slim
 WORKDIR /app
-COPY build/libs/database-project-0.0.1-SNAPSHOT.jar app.jar
+COPY ../build/libs/database-project-0.0.1-SNAPSHOT.jar app.jar
 EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "app.jar"]
 ```
