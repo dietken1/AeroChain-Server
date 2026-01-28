@@ -55,7 +55,7 @@
       <a href="https://github.com/jaegwanan">GitHub</a>
     </td>
     <td align="center" width="25%">
-      <img width="460" height="460" alt="member3" src="https://github.com/user-attachments/assets/fc48717c-fd1b-4d4d-8202-92a774b4ea5a" /><br/>
+      <img width="460" height="460" alt="member3" src="https://github.com/user-attachments/assets/9196a265-0dd8-4c6e-8d28-a181ae119c2d" /><br/>
       <b>최미현</b><br/>
       <code>Frontend Developer</code><br/>
       <a href="https://github.com/chlalgus">GitHub</a>
